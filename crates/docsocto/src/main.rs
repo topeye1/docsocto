@@ -10,6 +10,7 @@ fn main() -> ExitCode {
     let r = match args.first().map(String::as_str) {
         Some("init") => init(&args[1..]),
         Some("commands") => commands(&args[1..]),
+        Some("read") if args.len() == 2 => docsocto::read::read(&args[1]).map(|v| println!("{}", pretty(&v))),
         Some("inspect") if args.len() == 2 => docsocto::inspect(&args[1]).map(|v| println!("{}", pretty(&v))),
         Some("run") => run(&args[1..]),
         Some("new") if args.len() >= 2 => docsocto::new_document(&args[1], args.iter().any(|a| a == "--overwrite")).map(|p| println!("{p}")),

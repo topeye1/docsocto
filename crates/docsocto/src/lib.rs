@@ -10,6 +10,7 @@ pub mod form;
 pub mod hwpx;
 pub mod i18n;
 pub mod mcp;
+pub mod read;
 pub mod settings;
 pub mod text;
 

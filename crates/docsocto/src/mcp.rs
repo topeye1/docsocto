@@ -33,6 +33,8 @@ fn tools() -> Value {
         tool("save", "보존 저장한다. path를 안 주면 <원본>_수정.<확장자>. 원본 경로에 쓰려면 overwrite=true.",
              json!({"handle": {"type": "string"}, "path": {"type": "string"}, "overwrite": {"type": "boolean"}}), &["handle"]),
         tool("close", "문서를 닫는다(저장하지 않음).", json!({"handle": {"type": "string"}}), &["handle"]),
+        tool("read_reference", "참고 자료(hwpx·hwp·docx·md·txt·pptx·xlsx·pdf)를 글자로 읽는다. 각 조각에 위치(at: 문단·표 행·시트!행·슬라이드·쪽)가 붙는다 — 숫자를 쓸 때 이 위치를 출처로 밝힐 것.",
+             json!({"path": {"type": "string"}}), &["path"]),
         tool("inspect", "파일을 열어 문서 정보·표 목록·본문 글자를 돌려준다(고치지 않음).",
              json!({"path": {"type": "string"}}), &["path"]),
     ])
@@ -86,6 +88,7 @@ impl Server {
                 self.docs.remove(&s("handle")?);
                 Ok(json!({"ok": true}))
             }
+            "read_reference" => crate::read::read(&s("path")?),
             "inspect" => {
                 let path = s("path")?;
                 crate::inspect(&path)

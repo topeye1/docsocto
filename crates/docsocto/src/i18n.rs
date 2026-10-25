@@ -35,6 +35,7 @@ const USAGE_KO: &str = "DocsOcto — HWPX·docx·md·txt 문서 편집기
   docsocto init --default <hwpx|docx> [--lang <ko|en>]   처음 설정(기본 형식·언어)
   docsocto commands [<파일>] [--json]                   공통 명령 목록(파일을 주면 그 형식 고유 명령도)
   docsocto inspect <파일>                               문서 정보·표 목록·본문 글자(JSON)
+  docsocto read <자료>                                  참고 자료 글자(hwpx·docx·md·txt·pptx·xlsx·pdf, 위치 포함)
   docsocto run <파일> [--script <명령.json>] [--cmd 'id={json}' …] [--save <출력>] [--overwrite]
                                                        명령을 차례로 실행하고, --save 면 보존 저장
                                                        (출력을 안 주면 <원본>_수정.<확장자>)
@@ -50,6 +51,7 @@ Usage:
   docsocto init --default <hwpx|docx> [--lang <ko|en>]   first-run settings
   docsocto commands [<file>] [--json]                   common commands (plus the format's own with a file)
   docsocto inspect <file>                               info, tables and body text as JSON
+  docsocto read <source>                                text of a reference file with locations (… pptx, xlsx, pdf)
   docsocto run <file> [--script <cmds.json>] [--cmd 'id={json}' …] [--save <out>] [--overwrite]
                                                        run commands; --save writes a preserving save
                                                        (default output <name>_수정.<ext>)
