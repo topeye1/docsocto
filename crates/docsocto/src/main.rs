@@ -171,7 +171,18 @@ fn render(args: &[String]) -> Result<(), String> {
             println!("{out}");
             Ok(())
         }
-        // docx 쪽 그림은 WordCraft 렌더러 연결이 남았다(진행일지 M2 기록)
-        _ => Err("render 는 지금 HWPX만 됩니다 — docx는 wordcraft-cli render 를 쓰십시오".into()),
+        // docx: WordCraft 내보내기로 문서 전체를 PDF로 낸다(쪽 하나만 고르는 것은 HWPX만)
+        Some(Format::Docx) => {
+            if !out.to_ascii_lowercase().ends_with(".pdf") {
+                return Err("docx 는 --out 에 .pdf 를 주십시오(문서 전체를 PDF로 냅니다)".into());
+            }
+            let data = std::fs::read(file).map_err(|e| format!("{file}: {e}"))?;
+            let doc = wordcraft_engine::io::open_bytes(file, &data)?;
+            let bytes = wordcraft_engine::io::save_bytes(&out, &doc)?;
+            std::fs::write(&out, bytes).map_err(|e| format!("{out}: {e}"))?;
+            println!("{out}");
+            Ok(())
+        }
+        _ => Err("render 는 HWPX·docx만 됩니다".into()),
     }
 }

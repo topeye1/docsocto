@@ -4,6 +4,8 @@
 # usage: common_check.ps1 [-Out E:\OCTO\work\m2_out\common] [-Limit 55]
 param([string]$Out = 'E:\OCTO\work\m2_out\common', [int]$Limit = 55, [string]$Share = 'E:\OCTO\DOCS\Docs\Docs-share\문서\M2')
 $ErrorActionPreference = 'Continue'
+# docsocto 는 UTF-8로 낸다. 백그라운드 콘솔이 CP949로 읽으면 한글 바이트가 따옴표를 먹어 JSON이 깨진다.
+[Console]::OutputEncoding = New-Object Text.UTF8Encoding $false
 $tools = Split-Path $PSScriptRoot; $m0 = Join-Path $tools 'm0'
 $x = 'E:\OCTO\DOCS\target\release\docsocto.exe'
 foreach ($k in 'out','script','hwp_o','hwp_e','word_o','word_e') { New-Item -ItemType Directory -Force (Join-Path $Out $k) | Out-Null }
