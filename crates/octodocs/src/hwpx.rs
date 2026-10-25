@@ -6,12 +6,12 @@ use crate::{Engine, Format};
 
 pub struct HwpxEngine {
     fmt: Format,
-    s: docsocto_ohwp::Session,
+    s: octodocs_ohwp::Session,
 }
 
 impl HwpxEngine {
     pub fn open(fmt: Format, data: Vec<u8>) -> Result<Self, String> {
-        Ok(HwpxEngine { fmt, s: docsocto_ohwp::Session::open(data)? })
+        Ok(HwpxEngine { fmt, s: octodocs_ohwp::Session::open(data)? })
     }
 }
 
@@ -30,6 +30,6 @@ impl Engine for HwpxEngine {
     }
 
     fn native_commands(&self) -> Vec<(String, String, String)> {
-        docsocto_ohwp::commands().iter().map(|c| (c.id.to_string(), c.ko.to_string(), c.en.to_string())).collect()
+        octodocs_ohwp::commands().iter().map(|c| (c.id.to_string(), c.ko.to_string(), c.en.to_string())).collect()
     }
 }

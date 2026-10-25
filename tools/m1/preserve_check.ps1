@@ -9,7 +9,7 @@ param([string]$Out = 'E:\OCTO\work\m1_out\preserve', [int]$Limit = 55,
       [string]$Share = 'E:\OCTO\DOCS\Docs\Docs-share\문서\M1')
 $ErrorActionPreference = 'Continue'
 $m0 = Join-Path (Split-Path $PSScriptRoot) 'm0'
-$pres = 'E:\OCTO\DOCS\target\release\docsocto-preserve.exe'
+$pres = 'E:\OCTO\DOCS\target\release\octodocs-preserve.exe'
 $ohwp = 'E:\OCTO\DOCS\target\release\ohwp.exe'
 $w0 = 'E:\OCTO\work\m0_out'
 foreach ($k in 'hwpx','hwp_pdf','docx','word_pdf','b0') { New-Item -ItemType Directory -Force (Join-Path $Out $k) | Out-Null }

@@ -24,7 +24,7 @@ fn tool(name: &str, desc: &str, props: Value, required: &[&str]) -> Value {
 
 fn tools() -> Value {
     json!([
-        tool("list_commands", "DocsOcto 공통 명령 목록(한글·영어 이름, 매개변수). path를 주면 그 형식 엔진 고유 명령도 함께.",
+        tool("list_commands", "Octo Docs 공통 명령 목록(한글·영어 이름, 매개변수). path를 주면 그 형식 엔진 고유 명령도 함께.",
              json!({"path": {"type": "string"}}), &[]),
         tool("open", "문서를 연다(hwpx·hwp·docx·md·txt). 돌려받은 handle로 run·save 한다.",
              json!({"path": {"type": "string"}}), &["path"]),
@@ -105,8 +105,8 @@ impl Server {
             "initialize" => Ok(json!({
                 "protocolVersion": req.pointer("/params/protocolVersion").cloned().unwrap_or(json!("2024-11-05")),
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "docsocto", "version": env!("CARGO_PKG_VERSION")},
-                "instructions": "DocsOcto: HWPX·docx·md·txt를 같은 명령으로 고친다. open → run(명령) → save. 명령 목록은 list_commands. 저장은 원본을 덮어쓰지 않고 손대지 않은 부분은 원본 그대로 둔다."
+                "serverInfo": {"name": "octodocs", "version": env!("CARGO_PKG_VERSION")},
+                "instructions": "Octo Docs: HWPX·docx·md·txt를 같은 명령으로 고친다. open → run(명령) → save. 명령 목록은 list_commands. 저장은 원본을 덮어쓰지 않고 손대지 않은 부분은 원본 그대로 둔다."
             })),
             "ping" => Ok(json!({})),
             "tools/list" => Ok(json!({"tools": tools()})),
@@ -161,7 +161,7 @@ mod tests {
     fn initialize_and_list_tools() {
         let mut s = Server::new();
         let r = s.handle(&json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}})).unwrap();
-        assert_eq!(r["result"]["serverInfo"]["name"], "docsocto");
+        assert_eq!(r["result"]["serverInfo"]["name"], "octodocs");
         let r = s.handle(&json!({"jsonrpc":"2.0","id":2,"method":"tools/list"})).unwrap();
         assert!(r["result"]["tools"].as_array().unwrap().len() >= 6);
         assert!(s.handle(&json!({"jsonrpc":"2.0","method":"notifications/initialized"})).is_none());
@@ -169,7 +169,7 @@ mod tests {
 
     #[test]
     fn open_run_save_text_file() {
-        let dir = std::env::temp_dir().join("docsocto_mcp_test");
+        let dir = std::env::temp_dir().join("octodocs_mcp_test");
         std::fs::create_dir_all(&dir).unwrap();
         let src = dir.join("메모.txt");
         std::fs::write(&src, "첫 줄\r\n둘째 줄\r\n").unwrap();

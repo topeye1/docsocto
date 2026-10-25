@@ -629,42 +629,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "docsocto"
-version = "0.1.0"
-dependencies = [
- "docsocto-ohwp",
- "docsocto-preserve",
- "encoding_rs",
- "pdf-extract",
- "quick-xml 0.42.0",
- "serde",
- "serde_json",
- "sys-locale",
- "wordcraft-doc",
- "wordcraft-engine",
- "zip 8.6.0",
-]
-
-[[package]]
-name = "docsocto-ohwp"
-version = "0.1.0"
-dependencies = [
- "docsocto-preserve",
- "rhwp",
- "serde_json",
-]
-
-[[package]]
-name = "docsocto-preserve"
-version = "0.1.0"
-dependencies = [
- "quick-xml 0.42.0",
- "serde",
- "serde_json",
- "zip 8.6.0",
-]
-
-[[package]]
 name = "ecb"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1353,6 +1317,42 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
 dependencies = [
  "autocfg",
+]
+
+[[package]]
+name = "octodocs"
+version = "0.1.0"
+dependencies = [
+ "encoding_rs",
+ "octodocs-ohwp",
+ "octodocs-preserve",
+ "pdf-extract",
+ "quick-xml 0.42.0",
+ "serde",
+ "serde_json",
+ "sys-locale",
+ "wordcraft-doc",
+ "wordcraft-engine",
+ "zip 8.6.0",
+]
+
+[[package]]
+name = "octodocs-ohwp"
+version = "0.1.0"
+dependencies = [
+ "octodocs-preserve",
+ "rhwp",
+ "serde_json",
+]
+
+[[package]]
+name = "octodocs-preserve"
+version = "0.1.0"
+dependencies = [
+ "quick-xml 0.42.0",
+ "serde",
+ "serde_json",
+ "zip 8.6.0",
 ]
 
 [[package]]

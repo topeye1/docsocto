@@ -26,7 +26,7 @@ foreach ($f in $docx) {
   & $wc info $f.FullName > (Join-Path $Out "$b.info.json") 2> $null; $r.wc_open = $LASTEXITCODE
   $ed = Join-Path $d.edit "$b.docx"
   $cmds = New-Object Collections.ArrayList; $null = $cmds.Add($(if ($AtEnd) { 'caret.docEnd' } else { 'caret.docStart' }))
-  if (-not $NoEdit) { $null = $cmds.Add(@{ command = 'text.insert'; params = @{ text = 'DocsOcto M0 시험' } }) }
+  if (-not $NoEdit) { $null = $cmds.Add(@{ command = 'text.insert'; params = @{ text = 'Octo Docs M0 시험' } }) }
   $js = @{ file = $f.FullName; commands = $cmds;
            save = @($ed, (Join-Path $d.wc_edit "$b.pdf")) } | ConvertTo-Json -Depth 5
   $sj = Join-Path $Out "$b.run.json"; [IO.File]::WriteAllText($sj, $js, $utf8)

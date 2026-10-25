@@ -1,4 +1,4 @@
-//! DocsOcto — HWPX·docx·md·txt를 같은 명령 이름으로 고친다(기획서 3절 기능 2·3·4·4a, M2).
+//! Octo Docs — HWPX·docx·md·txt를 같은 명령 이름으로 고친다(기획서 3절 기능 2·3·4·4a, M2).
 //!
 //! 파일 형식에 따라 엔진을 고른다: HWPX(·HWP) → ohwp(rhwp), docx → WordCraft, md·txt → 텍스트 엔진.
 //! 공통 명령([`COMMON`])은 세 엔진이 같은 이름·같은 매개변수로 받는다. 공통 목록에 없는 명령은
@@ -159,7 +159,7 @@ pub fn new_document(path: &str, overwrite: bool) -> Result<String, String> {
         return Err(i18n::t("exists"));
     }
     let bytes = match Format::from_path(&path).unwrap() {
-        Format::Hwpx | Format::Hwp => docsocto_ohwp::blank_hwpx()?,
+        Format::Hwpx | Format::Hwp => octodocs_ohwp::blank_hwpx()?,
         Format::Docx => wordcraft_engine::io::save_bytes("new.docx", &wordcraft_doc::Document::new())?,
         Format::Markdown | Format::Text => Vec::new(),
     };

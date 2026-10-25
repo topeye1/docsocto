@@ -1,4 +1,4 @@
-//! ohwp — DocsOcto HWPX 엔진 명령줄
+//! ohwp — Octo Docs HWPX 엔진 명령줄
 //!
 //!   ohwp commands [--json]                      명령 목록
 //!   ohwp run <입력> [--script <명령.json>] --cmd 'id={json}' … [--save <출력>] [--engine-save] [--report <r.json>]
@@ -24,7 +24,7 @@ fn main() -> ExitCode {
         }
         Some("resave") if args.len() == 3 => std::fs::read(&args[1])
             .map_err(|e| format!("{} 읽기 실패: {e}", args[1]))
-            .and_then(|d| docsocto_ohwp::resave_hwpx(&d))
+            .and_then(|d| octodocs_ohwp::resave_hwpx(&d))
             .and_then(|b| std::fs::write(&args[2], b).map_err(|e| e.to_string())),
         Some("run") => run(&args[1..]),
         _ => Err(USAGE.to_string()),
@@ -39,7 +39,7 @@ fn main() -> ExitCode {
 }
 
 fn list(as_json: bool) {
-    let cmds = docsocto_ohwp::commands();
+    let cmds = octodocs_ohwp::commands();
     if as_json {
         let v: Vec<Value> = cmds.iter().map(|c| json!({"id": c.id, "ko": c.ko, "en": c.en, "params": c.params})).collect();
         println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
@@ -102,7 +102,7 @@ fn run(args: &[String]) -> Result<(), String> {
     }
     let input = input.ok_or(USAGE)?;
     let data = std::fs::read(&input).map_err(|e| format!("{input} 읽기 실패: {e}"))?;
-    let mut s = docsocto_ohwp::Session::open(data)?;
+    let mut s = octodocs_ohwp::Session::open(data)?;
     for (id, p) in &cmds {
         let v = s.run(id, p).map_err(|e| format!("{id}: {e}"))?;
         println!("{}", json!({ "command": id, "result": v }));

@@ -16,7 +16,7 @@ foreach ($f in Get-ChildItem 'E:\OCTO\DOCS\samples\m0\*.hwpx' | Where-Object Nam
   $b = $f.BaseName; $p = Join-Path $Out "hwpx\$b.hwpx"
   $done = $false
   foreach ($rc in @(@(1,1), @(0,1), @(1,0), @(0,0))) {
-    $cmds = @(@{ command = 'table.setCell'; params = @{ table = 0; row = $rc[0]; col = $rc[1]; text = 'DocsOcto M1 시험' } })
+    $cmds = @(@{ command = 'table.setCell'; params = @{ table = 0; row = $rc[0]; col = $rc[1]; text = 'Octo Docs M1 시험' } })
     if ($b -like '05_*') {
       $cmds += @{ command = 'table.insertRow'; params = @{ table = 0; row = 4; below = $true } }
       $cmds += @{ command = 'table.setCell'; params = @{ table = 0; row = 5; col = 0; text = '추가 행' } }

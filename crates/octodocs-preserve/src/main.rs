@@ -1,4 +1,4 @@
-//! docsocto-preserve <원본> <고치지않은저장본> <고친저장본> <출력> [--report 보고서.json]
+//! octodocs-preserve <원본> <고치지않은저장본> <고친저장본> <출력> [--report 보고서.json]
 
 use std::process::ExitCode;
 
@@ -22,13 +22,13 @@ fn main() -> ExitCode {
             .collect()
     };
     if pos.len() != 4 {
-        eprintln!("사용법: docsocto-preserve <원본> <고치지 않은 저장본> <고친 저장본> <출력> [--report 보고서.json]");
+        eprintln!("사용법: octodocs-preserve <원본> <고치지 않은 저장본> <고친 저장본> <출력> [--report 보고서.json]");
         return ExitCode::from(2);
     }
     let read = |p: &str| std::fs::read(p).map_err(|e| format!("{p} 읽기 실패: {e}"));
-    let run = || -> Result<docsocto_preserve::Report, String> {
+    let run = || -> Result<octodocs_preserve::Report, String> {
         let (o, b0, b1) = (read(pos[0])?, read(pos[1])?, read(pos[2])?);
-        let (out, report) = docsocto_preserve::preserve(&o, &b0, &b1).map_err(|e| e.to_string())?;
+        let (out, report) = octodocs_preserve::preserve(&o, &b0, &b1).map_err(|e| e.to_string())?;
         std::fs::write(pos[3], out).map_err(|e| format!("{} 쓰기 실패: {e}", pos[3]))?;
         Ok(report)
     };

@@ -275,7 +275,7 @@ impl Engine for DocxEngine {
         let b1 = wordcraft_engine::io::save_bytes(&self.name, &self.s.doc)?;
         let orig_doc = wordcraft_engine::io::open_bytes(&self.name, &self.original)?;
         let b0 = wordcraft_engine::io::save_bytes(&self.name, &orig_doc)?;
-        let (bytes, report) = docsocto_preserve::preserve(&self.original, &b0, &b1).map_err(|e| e.to_string())?;
+        let (bytes, report) = octodocs_preserve::preserve(&self.original, &b0, &b1).map_err(|e| e.to_string())?;
         Ok((bytes, serde_json::to_value(&report).unwrap_or_else(|_| json!({}))))
     }
 

@@ -1,13 +1,13 @@
 ﻿# M2 공통 명령 검증(7절 "같은 명령이 docx와 HWPX에서 모두 동작"):
-# HWPX·docx 시료 전부에 같은 명령 묶음(셀 쓰기 + 마지막 문단에 덧붙이기 + 굵게)을 docsocto로 돌려 보존 저장하고,
+# HWPX·docx 시료 전부에 같은 명령 묶음(셀 쓰기 + 마지막 문단에 덧붙이기 + 굵게)을 octodocs로 돌려 보존 저장하고,
 # 한글·Word로 원본과 결과를 PDF로 내보내 비교한다. Word·한글은 제한 시간·확인 창 자동 누름.
 # usage: common_check.ps1 [-Out E:\OCTO\work\m2_out\common] [-Limit 55]
 param([string]$Out = 'E:\OCTO\work\m2_out\common', [int]$Limit = 55, [string]$Share = 'E:\OCTO\DOCS\Docs\Docs-share\문서\M2')
 $ErrorActionPreference = 'Continue'
-# docsocto 는 UTF-8로 낸다. 백그라운드 콘솔이 CP949로 읽으면 한글 바이트가 따옴표를 먹어 JSON이 깨진다.
+# octodocs 는 UTF-8로 낸다. 백그라운드 콘솔이 CP949로 읽으면 한글 바이트가 따옴표를 먹어 JSON이 깨진다.
 [Console]::OutputEncoding = New-Object Text.UTF8Encoding $false
 $tools = Split-Path $PSScriptRoot; $m0 = Join-Path $tools 'm0'
-$x = 'E:\OCTO\DOCS\target\release\docsocto.exe'
+$x = 'E:\OCTO\DOCS\target\release\octodocs.exe'
 foreach ($k in 'out','script','hwp_o','hwp_e','word_o','word_e') { New-Item -ItemType Directory -Force (Join-Path $Out $k) | Out-Null }
 New-Item -ItemType Directory -Force $Share | Out-Null
 $log = Join-Path $Out 'common_check.log'
@@ -38,10 +38,10 @@ foreach ($f in $samples) {
   $ok = $false
   foreach ($rc in @(@(1,1), @(0,1), @(1,0), @(0,0))) {
     $cmds = @()
-    if (@($j.tables).Count -gt 0) { $cmds += @{ command = 'table.setCell'; params = @{ table = 0; row = $rc[0]; col = $rc[1]; text = 'DocsOcto 공통 명령 시험' } } }
+    if (@($j.tables).Count -gt 0) { $cmds += @{ command = 'table.setCell'; params = @{ table = 0; row = $rc[0]; col = $rc[1]; text = 'Octo Docs 공통 명령 시험' } } }
     if ($last) {
       $n = ([string]$last.text).Length
-      $cmds += @{ command = 'text.append'; params = @{ section = $last.section; para = $last.para; text = ' [DocsOcto]' } }
+      $cmds += @{ command = 'text.append'; params = @{ section = $last.section; para = $last.para; text = ' [Octo Docs]' } }
       $cmds += @{ command = 'format.bold'; params = @{ section = $last.section; para = $last.para; start = $n + 1; end = $n + 11 } }
     }
     $sj = Join-Path $Out "script\$b.json"

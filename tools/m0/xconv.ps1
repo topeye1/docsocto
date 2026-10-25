@@ -1,7 +1,7 @@
 ﻿# M0 cross-format judgement: convert, then compare the PDFs of the two formats.
 #   h2d: HWPX --Hangul SaveAs--> docx ; PDF(HWPX by Hangul) vs PDF(docx by Word)
 #   d2h: docx --Hangul SaveAs--> HWPX ; PDF(docx by Word)   vs PDF(HWPX by Hangul)
-# The converter is Hangul for now (DocsOcto's own converter is M4); the pipeline
+# The converter is Hangul for now (Octo Docs's own converter is M4); the pipeline
 # and comparison stay the same when the converter is swapped.
 # usage: xconv.ps1 [-Out E:\OCTO\work\m0_out\xconv]
 param([string]$Out = 'E:\OCTO\work\m0_out\xconv',

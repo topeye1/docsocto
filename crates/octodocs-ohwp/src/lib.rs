@@ -1,8 +1,8 @@
-//! ohwp — rhwp 위에 얹는 DocsOcto의 HWPX 엔진 층.
+//! ohwp — rhwp 위에 얹는 Octo Docs의 HWPX 엔진 층.
 //!
 //! 모든 편집은 "명령 id + JSON 매개변수"로 부른다(기획서 3절 기능 2). 명령 목록은
 //! [`commands`]가 돌려주고, [`Session::run`]이 실행한다. 저장은 [`Session::save`]가
-//! 보존 저장(docsocto-preserve)을 거쳐 손대지 않은 부분을 원본 바이트 그대로 둔다.
+//! 보존 저장(octodocs-preserve)을 거쳐 손대지 않은 부분을 원본 바이트 그대로 둔다.
 
 use rhwp::document_core::queries::table_extract::extract_tables;
 use rhwp::model::control::Control;
@@ -378,14 +378,14 @@ impl Session {
     }
 
     /// 보존 저장: 원본·무변경 저장본·편집 저장본을 맞대어 바뀐 부분만 원본에 끼운다.
-    pub fn save(&self) -> Result<(Vec<u8>, docsocto_preserve::Report), String> {
+    pub fn save(&self) -> Result<(Vec<u8>, octodocs_preserve::Report), String> {
         let b1 = self.engine_bytes()?;
         let b0 = resave_hwpx(&self.original)?;
         if is_hwpx(&self.original) {
-            docsocto_preserve::preserve(&self.original, &b0, &b1).map_err(|e| e.to_string())
+            octodocs_preserve::preserve(&self.original, &b0, &b1).map_err(|e| e.to_string())
         } else {
             // HWP 5.0 원본은 패키지가 달라 맞댈 수 없다 — 엔진 결과(HWPX)를 그대로 쓴다.
-            Ok((b1, docsocto_preserve::Report { whole_engine: true, ..Default::default() }))
+            Ok((b1, octodocs_preserve::Report { whole_engine: true, ..Default::default() }))
         }
     }
 }
@@ -722,9 +722,9 @@ mod tests {
     #[test]
     fn set_cell_then_get_cell() {
         let mut s = session();
-        s.run("table.setCell", &json!({"table":0,"row":1,"col":1,"text":"DocsOcto 시험"})).unwrap();
+        s.run("table.setCell", &json!({"table":0,"row":1,"col":1,"text":"Octo Docs 시험"})).unwrap();
         let v = s.run("table.getCell", &json!({"table":0,"row":1,"col":1})).unwrap();
-        assert_eq!(v["text"], "DocsOcto 시험");
+        assert_eq!(v["text"], "Octo Docs 시험");
     }
 
     #[test]
@@ -747,11 +747,11 @@ mod tests {
     #[test]
     fn save_keeps_untouched_parts_byte_identical() {
         let mut s = session();
-        s.run("table.setCell", &json!({"table":0,"row":1,"col":1,"text":"DocsOcto 시험"})).unwrap();
+        s.run("table.setCell", &json!({"table":0,"row":1,"col":1,"text":"Octo Docs 시험"})).unwrap();
         let (out, report) = s.save().unwrap();
         assert!(!report.whole_engine);
-        let o = docsocto_preserve::read_package(&std::fs::read(SAMPLE).unwrap()).unwrap();
-        let p = docsocto_preserve::read_package(&out).unwrap();
+        let o = octodocs_preserve::read_package(&std::fs::read(SAMPLE).unwrap()).unwrap();
+        let p = octodocs_preserve::read_package(&out).unwrap();
         let changed: Vec<_> = o.iter().filter(|e| p.iter().find(|x| x.name == e.name).map(|x| x.data != e.data).unwrap_or(true)).map(|e| e.name.clone()).collect();
         assert_eq!(changed, vec!["Contents/section0.xml".to_string()]);
         // 다시 열려야 한다

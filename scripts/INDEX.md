@@ -17,13 +17,13 @@
 
 ## M1 (tools/m1, crates)
 
-- crates/docsocto-preserve — 보존 저장 도구. docsocto-preserve <원본> <고치지 않은 저장본> <고친 저장본> <출력> [--report r.json]. 바뀐 문단만 끼우고 나머지는 원본 바이트 그대로. 빌드: cargo build -p docsocto-preserve --release (E:\OCTO\DOCS).
+- crates/octodocs-preserve — 보존 저장 도구. octodocs-preserve <원본> <고치지 않은 저장본> <고친 저장본> <출력> [--report r.json]. 바뀐 문단만 끼우고 나머지는 원본 바이트 그대로. 빌드: cargo build -p octodocs-preserve --release (E:\OCTO\DOCS).
 - tools/m1/preserve_check.ps1 — 보존 저장 검증: HWPX 10종(rhwp 셀 쓰기)·docx 6종(WordCraft 한 줄 쓰기)에 보존 저장을 적용해 한글·Word PDF를 원본과 비교.
 - tools/m1/ohwp_check.ps1 — ohwp 명령으로 HWPX 양식을 고쳐 보존 저장하고 한글 PDF로 원본과 비교.
 - tools/m1/font_check.ps1 — rhwp에 한컴 글꼴 폴더를 더해 렌더한 PDF를 한글 PDF와 비교.
-- crates/docsocto-ohwp — ohwp(HWPX 명령 80개). ohwp commands / ohwp run <파일> --script <명령.json> --save <출력> / ohwp resave.
+- crates/octodocs-ohwp — ohwp(HWPX 명령 80개). ohwp commands / ohwp run <파일> --script <명령.json> --save <출력> / ohwp resave.
 
-## M2 (tools/m2, crates/docsocto)
+## M2 (tools/m2, crates/octodocs)
 
-- crates/docsocto — DocsOcto 명령줄·MCP. docsocto init|commands|inspect|run|new|render|mcp. 빌드: cargo build -p docsocto --release.
-- tools/m2/common_check.ps1 [-Out 폴더] — HWPX·docx 시료 전부에 같은 공통 명령 묶음을 docsocto로 돌려 보존 저장하고 한글·Word PDF로 원본과 비교(7절 '같은 명령이 docx와 HWPX에서 모두 동작').
+- crates/octodocs — Octo Docs 명령줄·MCP. octodocs init|commands|inspect|run|new|render|mcp. 빌드: cargo build -p octodocs --release.
+- tools/m2/common_check.ps1 [-Out 폴더] — HWPX·docx 시료 전부에 같은 공통 명령 묶음을 octodocs로 돌려 보존 저장하고 한글·Word PDF로 원본과 비교(7절 '같은 명령이 docx와 HWPX에서 모두 동작').

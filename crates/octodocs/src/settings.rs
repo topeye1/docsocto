@@ -16,7 +16,7 @@ pub struct Settings {
 }
 
 pub fn dir() -> PathBuf {
-    if let Ok(d) = std::env::var("DOCSOCTO_CONFIG_DIR") {
+    if let Ok(d) = std::env::var("OCTODOCS_CONFIG_DIR") {
         return PathBuf::from(d);
     }
     let base = std::env::var("APPDATA").map(PathBuf::from).unwrap_or_else(|_| {

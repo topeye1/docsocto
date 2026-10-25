@@ -1,5 +1,5 @@
 [package]
-name = "docsocto-preserve"
+name = "octodocs-preserve"
 description = "보존 저장: 엔진이 고치지 않은 부분은 원본 패키지(docx·HWPX)의 바이트를 그대로 쓴다"
 version.workspace = true
 edition.workspace = true
@@ -13,5 +13,5 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 [[bin]]
-name = "docsocto-preserve"
+name = "octodocs-preserve"
 path = "src/main.rs"

@@ -621,7 +621,7 @@ fn merge_in(
                     if first_name(ko[i]) == first_name(k1[j1]) {
                         let r = merge_in(ko[i], k0[j0], k1[j1], rel.as_deref_mut(), &b1_decls, &o_decls);
                         if let Err(e) = &r {
-                            if std::env::var_os("DOCSOCTO_PRESERVE_DEBUG").is_some() {
+                            if std::env::var_os("OCTODOCS_PRESERVE_DEBUG").is_some() {
                                 eprintln!("보존 저장: {:?} 안으로 내려가지 못함 — {e}", first_name(ko[i]));
                             }
                         }

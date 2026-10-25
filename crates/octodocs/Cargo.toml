@@ -1,14 +1,14 @@
 [package]
-name = "docsocto"
-description = "DocsOcto: HWPX·docx·md·txt를 같은 명령으로 고치는 문서 편집기 (CLI·MCP)"
+name = "octodocs"
+description = "Octo Docs: HWPX·docx·md·txt를 같은 명령으로 고치는 문서 편집기 (CLI·MCP)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
 [dependencies]
-docsocto-ohwp = { path = "../docsocto-ohwp" }
-docsocto-preserve = { path = "../docsocto-preserve" }
+octodocs-ohwp = { path = "../octodocs-ohwp" }
+octodocs-preserve = { path = "../octodocs-preserve" }
 # 진행일지 A2: 로컬 포크를 경로로 참조한다
 wordcraft-engine = { path = "../../../work/wordcraft/crates/engine" }
 wordcraft-doc = { path = "../../../work/wordcraft/crates/doc" }
@@ -21,5 +21,5 @@ zip = { version = "8.6", default-features = false, features = ["deflate"] }
 pdf-extract = "0.9"
 
 [[bin]]
-name = "docsocto"
+name = "octodocs"
 path = "src/main.rs"

@@ -1,8 +1,8 @@
-//! docsocto 명령줄 — 사용법은 `docsocto` (인자 없이) 또는 i18n::USAGE.
+//! octodocs 명령줄 — 사용법은 `octodocs` (인자 없이) 또는 i18n::USAGE.
 
 use std::process::ExitCode;
 
-use docsocto::{i18n::t, settings, Format};
+use octodocs::{i18n::t, settings, Format};
 use serde_json::{json, Value};
 
 fn main() -> ExitCode {
@@ -10,17 +10,17 @@ fn main() -> ExitCode {
     let r = match args.first().map(String::as_str) {
         Some("init") => init(&args[1..]),
         Some("commands") => commands(&args[1..]),
-        Some("read") if args.len() == 2 => docsocto::read::read(&args[1]).map(|v| println!("{}", pretty(&v))),
-        Some("inspect") if args.len() == 2 => docsocto::inspect(&args[1]).map(|v| println!("{}", pretty(&v))),
+        Some("read") if args.len() == 2 => octodocs::read::read(&args[1]).map(|v| println!("{}", pretty(&v))),
+        Some("inspect") if args.len() == 2 => octodocs::inspect(&args[1]).map(|v| println!("{}", pretty(&v))),
         Some("run") => run(&args[1..]),
-        Some("new") if args.len() >= 2 => docsocto::new_document(&args[1], args.iter().any(|a| a == "--overwrite")).map(|p| println!("{p}")),
+        Some("new") if args.len() >= 2 => octodocs::new_document(&args[1], args.iter().any(|a| a == "--overwrite")).map(|p| println!("{p}")),
         Some("render") => render(&args[1..]),
         Some("mcp") => {
-            docsocto::mcp::Server::new().serve();
+            octodocs::mcp::Server::new().serve();
             Ok(())
         }
         Some("--version") => {
-            println!("docsocto {}", env!("CARGO_PKG_VERSION"));
+            println!("octodocs {}", env!("CARGO_PKG_VERSION"));
             Ok(())
         }
         _ => Err(t("usage")),
@@ -70,11 +70,11 @@ fn init(args: &[String]) -> Result<(), String> {
 fn commands(args: &[String]) -> Result<(), String> {
     let as_json = args.iter().any(|a| a == "--json");
     let file = args.iter().find(|a| !a.starts_with("--"));
-    let ko = docsocto::i18n::lang() == "ko";
+    let ko = octodocs::i18n::lang() == "ko";
     let native = match file {
         Some(f) => {
             let data = std::fs::read(f).map_err(|e| format!("{f}: {e}"))?;
-            docsocto::open(f, data)?.native_commands()
+            octodocs::open(f, data)?.native_commands()
         }
         None => Vec::new(),
     };
@@ -82,12 +82,12 @@ fn commands(args: &[String]) -> Result<(), String> {
         println!(
             "{}",
             pretty(&json!({
-                "common": docsocto::COMMON.iter().map(|c| json!({"id": c.0, "ko": c.1, "en": c.2, "params": c.3})).collect::<Vec<_>>(),
+                "common": octodocs::COMMON.iter().map(|c| json!({"id": c.0, "ko": c.1, "en": c.2, "params": c.3})).collect::<Vec<_>>(),
                 "native": native.iter().map(|c| json!({"id": c.0, "ko": c.1, "en": c.2})).collect::<Vec<_>>(),
             }))
         );
     } else {
-        for c in docsocto::COMMON {
+        for c in octodocs::COMMON {
             println!("{:<20} {:<14} {}", c.0, if ko { c.1 } else { c.2 }, c.3);
         }
         if !native.is_empty() {
@@ -140,13 +140,13 @@ fn run(args: &[String]) -> Result<(), String> {
     }
     let input = input.ok_or_else(|| t("usage"))?;
     let data = std::fs::read(&input).map_err(|e| format!("{input}: {e}"))?;
-    let mut e = docsocto::open(&input, data)?;
+    let mut e = octodocs::open(&input, data)?;
     for (id, p) in &cmds {
-        let v = docsocto::run(e.as_mut(), id, p).map_err(|err| format!("{id}: {err}"))?;
+        let v = octodocs::run(e.as_mut(), id, p).map_err(|err| format!("{id}: {err}"))?;
         println!("{}", json!({"command": id, "result": v}));
     }
     if let Some(out) = save {
-        let out = if out.is_empty() { docsocto::default_save_path(&input, e.format()) } else { out };
+        let out = if out.is_empty() { octodocs::default_save_path(&input, e.format()) } else { out };
         if std::path::Path::new(&out).exists() && !overwrite {
             return Err(format!("{out}: {}", t("exists")));
         }
@@ -167,7 +167,7 @@ fn render(args: &[String]) -> Result<(), String> {
     match Format::from_path(file) {
         Some(Format::Hwpx) | Some(Format::Hwp) => {
             let data = std::fs::read(file).map_err(|e| format!("{file}: {e}"))?;
-            let mut s = docsocto_ohwp::Session::open(data)?;
+            let mut s = octodocs_ohwp::Session::open(data)?;
             s.run("render.page", &json!({"page": page.saturating_sub(1), "path": out}))?;
             println!("{out}");
             Ok(())
