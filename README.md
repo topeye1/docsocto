@@ -16,7 +16,7 @@ M0(검증) 단계입니다. 아직 쓸 수 있는 코드는 없습니다. 계획
 ## 바탕 기술
 
 - [rhwp](https://github.com/edwardkim/rhwp): HWP·HWPX 파싱과 저장 (MIT)
-- [WordCraft](https://github.com/storytold/wordcraft): docx 편집 엔진 (Apache-2.0)
+- [WordCraft](https://github.com/storytold/wordcraft): docx 편집 엔진 (MIT 또는 Apache-2.0)
 
 ## 글꼴
 
