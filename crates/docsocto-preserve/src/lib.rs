@@ -145,53 +145,80 @@ fn split(xml: &[u8]) -> Option<Split> {
     }
 }
 
-enum Op {
-    Keep(usize),
-    Take(usize),
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Step {
+    /// 양쪽에 있는 짝 (a 쪽 번호, b 쪽 번호)
+    Both(usize, usize),
+    AOnly(usize),
+    BOnly(usize),
 }
 
-/// B0 자식과 B1 자식을 맞댄다. 앞뒤 공통 부분을 먼저 잘라 내고 가운데만 LCS로 맞춘다.
-fn align(b0: &[&[u8]], b1: &[&[u8]]) -> Vec<Op> {
+/// 두 목록을 맞댄다. 앞뒤 공통 부분을 먼저 잘라 내고 가운데만 LCS로 맞춘다.
+/// 가운데가 너무 크면 None (호출한 쪽이 다른 방법을 쓴다).
+fn align<T: PartialEq>(a: &[T], b: &[T]) -> Option<Vec<Step>> {
     let mut pre = 0;
-    while pre < b0.len() && pre < b1.len() && b0[pre] == b1[pre] {
+    while pre < a.len() && pre < b.len() && a[pre] == b[pre] {
         pre += 1;
     }
     let mut suf = 0;
-    while suf < b0.len() - pre && suf < b1.len() - pre && b0[b0.len() - 1 - suf] == b1[b1.len() - 1 - suf] {
+    while suf < a.len() - pre && suf < b.len() - pre && a[a.len() - 1 - suf] == b[b.len() - 1 - suf] {
         suf += 1;
     }
-    let (m0, m1) = (&b0[pre..b0.len() - suf], &b1[pre..b1.len() - suf]);
-    let (n, m) = (m0.len(), m1.len());
-    let mut ops: Vec<Op> = (0..pre).map(Op::Keep).collect();
-    if n * m <= 4_000_000 {
-        let mut t = vec![0u32; (n + 1) * (m + 1)];
-        for i in (0..n).rev() {
-            for j in (0..m).rev() {
-                t[i * (m + 1) + j] = if m0[i] == m1[j] {
-                    t[(i + 1) * (m + 1) + j + 1] + 1
-                } else {
-                    t[(i + 1) * (m + 1) + j].max(t[i * (m + 1) + j + 1])
-                };
-            }
-        }
-        let (mut i, mut j) = (0, 0);
-        while i < n || j < m {
-            if i < n && j < m && m0[i] == m1[j] {
-                ops.push(Op::Keep(pre + i));
-                i += 1;
-                j += 1;
-            } else if j < m && (i == n || t[i * (m + 1) + j + 1] >= t[(i + 1) * (m + 1) + j]) {
-                ops.push(Op::Take(pre + j));
-                j += 1;
-            } else {
-                i += 1; // B1에서 지워진 자식
-            }
-        }
-    } else {
-        ops.extend((0..m).map(|j| Op::Take(pre + j)));
+    let (ma, mb) = (&a[pre..a.len() - suf], &b[pre..b.len() - suf]);
+    let (n, m) = (ma.len(), mb.len());
+    let mut steps: Vec<Step> = (0..pre).map(|i| Step::Both(i, i)).collect();
+    if n.saturating_mul(m) > 16_000_000 {
+        return None;
     }
-    ops.extend((0..suf).map(|k| Op::Keep(b0.len() - suf + k)));
-    ops
+    let mut t = vec![0u32; (n + 1) * (m + 1)];
+    for i in (0..n).rev() {
+        for j in (0..m).rev() {
+            t[i * (m + 1) + j] = if ma[i] == mb[j] {
+                t[(i + 1) * (m + 1) + j + 1] + 1
+            } else {
+                t[(i + 1) * (m + 1) + j].max(t[i * (m + 1) + j + 1])
+            };
+        }
+    }
+    let (mut i, mut j) = (0, 0);
+    while i < n || j < m {
+        if i < n && j < m && ma[i] == mb[j] {
+            steps.push(Step::Both(pre + i, pre + j));
+            i += 1;
+            j += 1;
+        } else if j < m && (i == n || t[i * (m + 1) + j + 1] >= t[(i + 1) * (m + 1) + j]) {
+            steps.push(Step::BOnly(pre + j));
+            j += 1;
+        } else {
+            steps.push(Step::AOnly(pre + i));
+            i += 1;
+        }
+    }
+    steps.extend((0..suf).map(|k| Step::Both(a.len() - suf + k, b.len() - suf + k)));
+    Some(steps)
+}
+
+/// 자식 하나의 "내용 표지": 요소 이름 + 안의 글자 전부. 엔진이 속성·모양을 다르게 써도
+/// 같은 문단이면 같은 표지가 나오므로 원본 자식과 엔진 자식을 짝짓는 데 쓴다.
+fn signature(snippet: &[u8]) -> Vec<u8> {
+    let mut r = Reader::from_reader(snippet);
+    r.config_mut().trim_text(false);
+    let mut out = Vec::new();
+    let mut first = true;
+    loop {
+        match r.read_event() {
+            Ok(Event::Start(e)) | Ok(Event::Empty(e)) if first => {
+                out.extend_from_slice(e.local_name().as_ref().as_bytes());
+                out.push(0);
+                first = false;
+            }
+            Ok(Event::Text(t)) => out.extend_from_slice(t.as_ref().as_bytes()),
+            Ok(Event::CData(t)) => out.extend_from_slice(t.as_ref().as_bytes()),
+            Ok(Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+    }
+    out
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -213,6 +240,13 @@ pub struct PartReport {
 pub struct Report {
     pub parts: Vec<PartReport>,
     pub rels_added: usize,
+    /// 맞대지 못한 항목이 있어 엔진 결과 전체를 쓴 경우
+    pub whole_engine: bool,
+}
+
+/// 편집과 상관없는 문서 정보 항목(작성일·쪽 수·미리보기) — 언제나 원본을 쓴다.
+fn is_metadata(name: &str) -> bool {
+    name.starts_with("docProps/") || name.starts_with("Preview/")
 }
 
 /// docx 관계(rels) 한 벌: Id → (Type, Target, TargetMode).
@@ -344,6 +378,11 @@ fn is_xml(name: &str) -> bool {
 }
 
 /// 자식 단위 병합. 맞댈 수 없으면 Err(이유).
+///
+/// 1) 원본 O 자식과 B0 자식을 내용 표지(요소 이름 + 글자)로 짝짓는다. O에만 있는 자식은
+///    엔진이 모르는 것(책갈피 등)이므로 제자리에 그대로 남긴다.
+/// 2) B0 자식과 B1 자식을 바이트로 맞대어 바뀐 것을 찾는다.
+/// 3) 짝이 있고 안 바뀐 자식은 O의 바이트를, 바뀌거나 새로 생긴 자식은 B1의 바이트를 쓴다.
 fn merge_xml(o: &[u8], b0: &[u8], b1: &[u8], rel: Option<&mut RelMap>) -> Result<(Vec<u8>, usize, usize, usize), String> {
     let (so, s0, s1) = match (split(o), split(b0), split(b1)) {
         (Some(a), Some(b), Some(c)) => (a, b, c),
@@ -352,35 +391,83 @@ fn merge_xml(o: &[u8], b0: &[u8], b1: &[u8], rel: Option<&mut RelMap>) -> Result
     if b0[s0.head.clone()] != b1[s1.head.clone()] || b0[s0.tail.clone()] != b1[s1.tail.clone()] {
         return Err("머리(루트 시작 태그 등)나 꼬리가 바뀜".into());
     }
-    if so.kids.len() != s0.kids.len() {
-        return Err(format!("원본 자식 {}개, 엔진 자식 {}개로 수가 다름", so.kids.len(), s0.kids.len()));
-    }
+    let ko: Vec<&[u8]> = so.kids.iter().map(|(_, k)| &o[k.clone()]).collect();
     let k0: Vec<&[u8]> = s0.kids.iter().map(|(_, k)| &b0[k.clone()]).collect();
     let k1: Vec<&[u8]> = s1.kids.iter().map(|(_, k)| &b1[k.clone()]).collect();
-    let ops = align(&k0, &k1);
+
+    // 1) O ↔ B0
+    let sig_o: Vec<Vec<u8>> = ko.iter().map(|k| signature(k)).collect();
+    let sig_0: Vec<Vec<u8>> = k0.iter().map(|k| signature(k)).collect();
+    let ob = align(&sig_o, &sig_0).ok_or("원본과 엔진 저장본의 문단이 너무 많아 맞대지 못함")?;
+    let matched = ob.iter().filter(|s| matches!(s, Step::Both(..))).count();
+    // 짝이 거의 없으면 맞댄 것이 아니다.
+    if k0.len() > 4 && matched * 2 < k0.len() {
+        return Err(format!("원본 자식 {}개 중 엔진 저장본과 짝지은 것이 {matched}개뿐", ko.len()));
+    }
+
+    // 2) B0 ↔ B1: B0 자식마다 그대로인지, 그 앞에 끼울 B1 자식은 무엇인지
+    let bb = align(&k0, &k1).unwrap_or_else(|| {
+        (0..k0.len()).map(Step::AOnly).chain((0..k1.len()).map(Step::BOnly)).collect()
+    });
+    let mut unchanged = vec![false; k0.len()];
+    let mut before: Vec<Vec<usize>> = vec![Vec::new(); k0.len() + 1];
+    let mut pending: Vec<usize> = Vec::new();
+    for s in &bb {
+        match *s {
+            Step::Both(i, _) => {
+                unchanged[i] = true;
+                before[i].append(&mut pending);
+            }
+            Step::AOnly(i) => before[i].append(&mut pending),
+            Step::BOnly(j) => pending.push(j),
+        }
+    }
+    before[k0.len()].append(&mut pending);
+
+    // 3) 원본 순서대로 내보낸다
     let mut out = Vec::with_capacity(o.len() + b1.len() / 4);
     out.extend_from_slice(&o[so.head.clone()]);
     let (mut kept, mut taken) = (0, 0);
     let mut rel = rel;
-    for op in &ops {
-        match *op {
-            Op::Keep(i) => {
+    let mut emit_b1 = |out: &mut Vec<u8>, j: usize, taken: &mut usize| {
+        let (g, k) = &s1.kids[j];
+        out.extend_from_slice(&b1[g.clone()]);
+        match rel.as_deref_mut() {
+            Some(m) => out.extend_from_slice(&m.rewrite(&b1[k.clone()])),
+            None => out.extend_from_slice(&b1[k.clone()]),
+        }
+        *taken += 1;
+    };
+    for s in &ob {
+        match *s {
+            Step::AOnly(i) => {
+                // 엔진이 모르는 원본 자식 — 그대로
                 let (g, k) = &so.kids[i];
                 out.extend_from_slice(&o[g.clone()]);
                 out.extend_from_slice(&o[k.clone()]);
                 kept += 1;
             }
-            Op::Take(j) => {
-                let (g, k) = &s1.kids[j];
-                out.extend_from_slice(&b1[g.clone()]);
-                let snippet = &b1[k.clone()];
-                match rel.as_deref_mut() {
-                    Some(m) => out.extend_from_slice(&m.rewrite(snippet)),
-                    None => out.extend_from_slice(snippet),
+            Step::Both(i, j0) => {
+                for &j in &before[j0] {
+                    emit_b1(&mut out, j, &mut taken);
                 }
-                taken += 1;
+                if unchanged[j0] {
+                    let (g, k) = &so.kids[i];
+                    out.extend_from_slice(&o[g.clone()]);
+                    out.extend_from_slice(&o[k.clone()]);
+                    kept += 1;
+                }
+            }
+            Step::BOnly(j0) => {
+                // 엔진이 지어낸 자식 — 그대로면 버리고, 앞에 끼울 것만 내보낸다
+                for &j in &before[j0] {
+                    emit_b1(&mut out, j, &mut taken);
+                }
             }
         }
+    }
+    for &j in &before[k0.len()] {
+        emit_b1(&mut out, j, &mut taken);
     }
     out.extend_from_slice(&o[so.last_gap.clone()]);
     out.extend_from_slice(&o[so.tail.clone()]);
@@ -400,6 +487,7 @@ pub fn preserve(o: &[u8], b0: &[u8], b1: &[u8]) -> Result<(Vec<u8>, Report), Err
 
     let mut report = Report::default();
     let mut out: Vec<Entry> = Vec::new();
+    let mut whole_engine = false;
     // rels 항목 이름 → 덧붙일 관계
     let mut rel_adds: BTreeMap<String, Vec<(String, (String, String, String))>> = BTreeMap::new();
 
@@ -427,6 +515,11 @@ pub fn preserve(o: &[u8], b0: &[u8], b1: &[u8]) -> Result<(Vec<u8>, Report), Err
                 pr.note = Some("고치지 않은 저장본에는 없던 항목".into());
                 Some(b.data.clone())
             }
+            (Some(_), Some(_)) if is_metadata(name) => {
+                pr.action = "original";
+                pr.note = Some("문서 정보(작성일·쪽 수 등) — 원본 유지".into());
+                Some(e.data.clone())
+            }
             (Some(a), Some(b)) => {
                 let rels_o = is_docx.then(|| parse_rels(mo.get(rels_name(name).as_str()).map(|x| x.data.as_slice()).unwrap_or(b"")));
                 let rels_1 = is_docx.then(|| parse_rels(m1.get(rels_name(name).as_str()).map(|x| x.data.as_slice()).unwrap_or(b"")));
@@ -449,8 +542,11 @@ pub fn preserve(o: &[u8], b0: &[u8], b1: &[u8]) -> Result<(Vec<u8>, Report), Err
                         Some(d)
                     }
                     Err(why) => {
+                        // 엔진이 쓴 항목 하나를 원본 항목들 사이에 섞으면 서로 가리키는 id가 어긋나
+                        // 파일이 깨진다(M1-1 검증에서 Word "파일이 손상" 확인). 이때는 엔진 결과 전체를 쓴다.
                         pr.action = "engine";
                         pr.note = Some(why);
+                        whole_engine = true;
                         Some(b.data.clone())
                     }
                 }
@@ -460,6 +556,10 @@ pub fn preserve(o: &[u8], b0: &[u8], b1: &[u8]) -> Result<(Vec<u8>, Report), Err
             out.push(Entry { name: e.name.clone(), data, method: e.method });
         }
         report.parts.push(pr);
+    }
+    if whole_engine {
+        report.whole_engine = true;
+        return Ok((b1.to_vec(), report));
     }
     // 편집으로 새로 생긴 항목(고치지 않은 저장본에 없던 것)만 더한다.
     for e in &p1 {
@@ -536,6 +636,19 @@ mod tests {
         let b1 = "<r><p>a</p><p>new</p><p>b</p></r>";
         let (m, ..) = merge_xml(o.as_bytes(), o.as_bytes(), b1.as_bytes(), None).unwrap();
         assert_eq!(String::from_utf8(m).unwrap(), b1);
+    }
+
+    #[test]
+    fn child_unknown_to_engine_is_kept_in_place() {
+        // 엔진이 책갈피를 빠뜨리고 문단 모양도 다르게 쓰지만, 원본 책갈피와 안 바뀐 문단은 그대로 남는다
+        let o = r#"<r><p a='1'><t>a</t></p><bm n='x'/><p a='1'><t>b</t></p><p a='1'><t>c</t></p></r>"#;
+        let b0 = r#"<r><p a="1"><t>a</t></p><p a="1"><t>b</t></p><p a="1"><t>c</t></p></r>"#;
+        let b1 = r#"<r><p a="1"><t>a</t></p><p a="1"><t>B</t></p><p a="1"><t>c</t></p></r>"#;
+        let (m, ..) = merge_xml(o.as_bytes(), b0.as_bytes(), b1.as_bytes(), None).unwrap();
+        assert_eq!(
+            String::from_utf8(m).unwrap(),
+            r#"<r><p a='1'><t>a</t></p><bm n='x'/><p a="1"><t>B</t></p><p a='1'><t>c</t></p></r>"#
+        );
     }
 
     #[test]
