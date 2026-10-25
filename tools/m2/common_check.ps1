@@ -27,9 +27,11 @@ $samples = @(Get-ChildItem 'E:\OCTO\DOCS\samples\m0\*.hwpx' | Where-Object Name 
 $hwpO = @(); $hwpE = @()
 foreach ($f in $samples) {
   $b = $f.BaseName; $ext = $f.Extension; $outp = Join-Path $Out "out\$b$ext"
-  $info = & $x inspect $f.FullName 2> $null | Out-String
-  if (-not $info) { L "$($f.Name) OPEN FAILED"; continue }
-  $j = $info | ConvertFrom-Json
+  # Out-String 은 창 너비로 긴 줄을 자를 수 있다 — 줄을 그대로 잇는다. 읽기 실패 때 앞 파일 값이 남지 않게 매번 비운다.
+  $j = $null; $last = $null
+  $info = (& $x inspect $f.FullName 2> $null) -join "`n"
+  try { $j = $info | ConvertFrom-Json } catch { $j = $null }
+  if (-not $j) { L "$($f.Name) OPEN FAILED"; continue }
   $last = @($j.text) | Select-Object -Last 1
   $ok = $false
   foreach ($rc in @(@(1,1), @(0,1), @(1,0), @(0,0))) {

@@ -454,6 +454,76 @@ fn is_xml(name: &str) -> bool {
 /// 2) B0 자식과 B1 자식을 바이트로 맞대어 바뀐 것을 찾는다.
 /// 3) 짝이 있고 안 바뀐 자식은 O의 바이트를, 바뀌거나 새로 생긴 자식은 B1의 바이트를 쓴다.
 fn merge_xml(o: &[u8], b0: &[u8], b1: &[u8], rel: Option<&mut RelMap>) -> Result<(Vec<u8>, usize, usize, usize), String> {
+    merge_in(o, b0, b1, rel, &[], &[])
+}
+
+/// 내용 표지로 짝짓지 못한 구간(원본만·엔진만이 이어진 곳)에서, 같은 요소끼리 순서대로 짝짓는다.
+/// 엔진이 표 안 글자 일부를 빠뜨려 표지가 달라져도 그 표를 원본 표와 짝지어, 표가 두 벌 되는 일을 막는다.
+fn pair_leftovers(steps: Vec<Step>, ko: &[&[u8]], k0: &[&[u8]]) -> Vec<Step> {
+    let mut out = Vec::with_capacity(steps.len());
+    let mut i = 0;
+    while i < steps.len() {
+        if matches!(steps[i], Step::Both(..)) {
+            out.push(steps[i]);
+            i += 1;
+            continue;
+        }
+        let start = i;
+        while i < steps.len() && !matches!(steps[i], Step::Both(..)) {
+            i += 1;
+        }
+        let a: Vec<usize> = steps[start..i].iter().filter_map(|s| if let Step::AOnly(x) = s { Some(*x) } else { None }).collect();
+        let b: Vec<usize> = steps[start..i].iter().filter_map(|s| if let Step::BOnly(x) = s { Some(*x) } else { None }).collect();
+        let (mut ai, mut bi) = (0, 0);
+        while ai < a.len() || bi < b.len() {
+            if ai < a.len() && bi < b.len() && first_name(ko[a[ai]]) == first_name(k0[b[bi]]) {
+                out.push(Step::Both(a[ai], b[bi]));
+                ai += 1;
+                bi += 1;
+            } else if ai < a.len() && (bi >= b.len() || !b[bi..].iter().any(|&x| first_name(k0[x]) == first_name(ko[a[ai]]))) {
+                out.push(Step::AOnly(a[ai]));
+                ai += 1;
+            } else {
+                out.push(Step::BOnly(b[bi]));
+                bi += 1;
+            }
+        }
+    }
+    out
+}
+
+/// 표처럼 안으로 내려가 고친 부분만 바꿀 수 있는 요소(docx). 문단(w:p)은 통째로 바꾼다.
+fn descend_ok(snippet: &[u8]) -> bool {
+    let mut r = Reader::from_reader(snippet);
+    loop {
+        match r.read_event() {
+            Ok(Event::Start(e)) => return matches!(e.local_name().as_ref(), "tbl" | "tr" | "tc" | "sdt" | "sdtContent"),
+            Ok(Event::Eof) | Err(_) | Ok(Event::Empty(_)) => return false,
+            _ => {}
+        }
+    }
+}
+
+fn first_name(snippet: &[u8]) -> Option<String> {
+    let mut r = Reader::from_reader(snippet);
+    loop {
+        match r.read_event() {
+            Ok(Event::Start(e)) | Ok(Event::Empty(e)) => return Some(e.name().as_ref().to_string()),
+            Ok(Event::Eof) | Err(_) => return None,
+            _ => {}
+        }
+    }
+}
+
+/// `outer_b1`·`outer_o`: 바깥 요소들에서 이미 선언된 이름공간(안쪽으로 내려갈 때 넘긴다).
+fn merge_in(
+    o: &[u8],
+    b0: &[u8],
+    b1: &[u8],
+    rel: Option<&mut RelMap>,
+    outer_b1: &[(String, String)],
+    outer_o: &[(String, String)],
+) -> Result<(Vec<u8>, usize, usize, usize), String> {
     let (so, s0, s1) = match (split(o), split(b0), split(b1)) {
         (Some(a), Some(b), Some(c)) => (a, b, c),
         _ => return Err("XML 구조를 나누지 못함".into()),
@@ -468,7 +538,7 @@ fn merge_xml(o: &[u8], b0: &[u8], b1: &[u8], rel: Option<&mut RelMap>) -> Result
     // 1) O ↔ B0
     let sig_o: Vec<Vec<u8>> = ko.iter().map(|k| signature(k)).collect();
     let sig_0: Vec<Vec<u8>> = k0.iter().map(|k| signature(k)).collect();
-    let ob = align(&sig_o, &sig_0).ok_or("원본과 엔진 저장본의 문단이 너무 많아 맞대지 못함")?;
+    let ob = pair_leftovers(align(&sig_o, &sig_0).ok_or("원본과 엔진 저장본의 문단이 너무 많아 맞대지 못함")?, &ko, &k0);
     let matched = ob.iter().filter(|s| matches!(s, Step::Both(..))).count();
     // 짝이 거의 없으면 맞댄 것이 아니다.
     if k0.len() > 4 && matched * 2 < k0.len() {
@@ -494,22 +564,34 @@ fn merge_xml(o: &[u8], b0: &[u8], b1: &[u8], rel: Option<&mut RelMap>) -> Result
     }
     before[k0.len()].append(&mut pending);
 
+    // 이름공간: 바깥에서 물려받은 것 + 이 요소 머리에서 선언한 것
+    let mut b1_decls = outer_b1.to_vec();
+    b1_decls.extend(ns_decls(&b1[s1.head.clone()]));
+    let mut o_decls = outer_o.to_vec();
+    o_decls.extend(ns_decls(&o[so.head.clone()]));
+
     // 3) 원본 순서대로 내보낸다
     let mut out = Vec::with_capacity(o.len() + b1.len() / 4);
     out.extend_from_slice(&o[so.head.clone()]);
     let (mut kept, mut taken) = (0, 0);
     let mut rel = rel;
-    let (b1_decls, o_decls) = (ns_decls(&b1[s1.head.clone()]), ns_decls(&o[so.head.clone()]));
-    let mut emit_b1 = |out: &mut Vec<u8>, j: usize, taken: &mut usize| {
+    fn emit_b1(
+        out: &mut Vec<u8>,
+        b1: &[u8],
+        s1: &Split,
+        j: usize,
+        rel: &mut Option<&mut RelMap>,
+        b1_decls: &[(String, String)],
+        o_decls: &[(String, String)],
+    ) {
         let (g, k) = &s1.kids[j];
         out.extend_from_slice(&b1[g.clone()]);
         let snippet = match rel.as_deref_mut() {
             Some(m) => m.rewrite(&b1[k.clone()]),
             None => b1[k.clone()].to_vec(),
         };
-        out.extend_from_slice(&fix_namespaces(snippet, &b1_decls, &o_decls));
-        *taken += 1;
-    };
+        out.extend_from_slice(&fix_namespaces(snippet, b1_decls, o_decls));
+    }
     for s in &ob {
         match *s {
             Step::AOnly(i) => {
@@ -520,8 +602,29 @@ fn merge_xml(o: &[u8], b0: &[u8], b1: &[u8], rel: Option<&mut RelMap>) -> Result
                 kept += 1;
             }
             Step::Both(i, j0) => {
+                // 표·행·셀처럼 큰 자식 하나가 바뀌었으면 안으로 내려가 바뀐 부분만 바꾼다
+                if !unchanged[j0] && before[j0].len() == 1 && descend_ok(ko[i]) {
+                    let j1 = before[j0][0];
+                    if first_name(ko[i]) == first_name(k1[j1]) {
+                        let r = merge_in(ko[i], k0[j0], k1[j1], rel.as_deref_mut(), &b1_decls, &o_decls);
+                        if let Err(e) = &r {
+                            if std::env::var_os("DOCSOCTO_PRESERVE_DEBUG").is_some() {
+                                eprintln!("보존 저장: {:?} 안으로 내려가지 못함 — {e}", first_name(ko[i]));
+                            }
+                        }
+                        if let Ok((m, kk, tt, _)) = r {
+                            let (g, _) = &so.kids[i];
+                            out.extend_from_slice(&o[g.clone()]);
+                            out.extend_from_slice(&m);
+                            kept += kk;
+                            taken += tt;
+                            continue;
+                        }
+                    }
+                }
                 for &j in &before[j0] {
-                    emit_b1(&mut out, j, &mut taken);
+                    emit_b1(&mut out, b1, &s1, j, &mut rel, &b1_decls, &o_decls);
+                    taken += 1;
                 }
                 if unchanged[j0] {
                     let (g, k) = &so.kids[i];
@@ -533,17 +636,19 @@ fn merge_xml(o: &[u8], b0: &[u8], b1: &[u8], rel: Option<&mut RelMap>) -> Result
             Step::BOnly(j0) => {
                 // 엔진이 지어낸 자식 — 그대로면 버리고, 앞에 끼울 것만 내보낸다
                 for &j in &before[j0] {
-                    emit_b1(&mut out, j, &mut taken);
+                    emit_b1(&mut out, b1, &s1, j, &mut rel, &b1_decls, &o_decls);
+                    taken += 1;
                 }
             }
         }
     }
     for &j in &before[k0.len()] {
-        emit_b1(&mut out, j, &mut taken);
+        emit_b1(&mut out, b1, &s1, j, &mut rel, &b1_decls, &o_decls);
+        taken += 1;
     }
     out.extend_from_slice(&o[so.last_gap.clone()]);
     out.extend_from_slice(&o[so.tail.clone()]);
-    let removed = so.kids.len() - kept;
+    let removed = so.kids.len().saturating_sub(kept);
     Ok((out, kept, taken, removed))
 }
 
@@ -733,6 +838,30 @@ mod tests {
             String::from_utf8(m).unwrap(),
             r#"<w:document xmlns:w="W"><w:body><w:p>a</w:p><w:p xmlns:a="A"><a:graphic/>b!</w:p></w:body></w:document>"#
         );
+    }
+
+    #[test]
+    fn edit_inside_big_table_keeps_other_rows_original() {
+        let o = r#"<w:document xmlns:w="W"><w:body><w:tbl><w:tr><w:tc><w:p n='o'>a</w:p></w:tc></w:tr><w:tr><w:tc><w:p n='o'>b</w:p></w:tc></w:tr></w:tbl></w:body></w:document>"#;
+        let b0 = r#"<w:document xmlns:w="W"><w:body><w:tbl><w:tr><w:tc><w:p>a</w:p></w:tc></w:tr><w:tr><w:tc><w:p>b</w:p></w:tc></w:tr></w:tbl></w:body></w:document>"#;
+        let b1 = r#"<w:document xmlns:w="W"><w:body><w:tbl><w:tr><w:tc><w:p>a</w:p></w:tc></w:tr><w:tr><w:tc><w:p>B!</w:p></w:tc></w:tr></w:tbl></w:body></w:document>"#;
+        let (m, ..) = merge_xml(o.as_bytes(), b0.as_bytes(), b1.as_bytes(), None).unwrap();
+        assert_eq!(
+            String::from_utf8(m).unwrap(),
+            r#"<w:document xmlns:w="W"><w:body><w:tbl><w:tr><w:tc><w:p n='o'>a</w:p></w:tc></w:tr><w:tr><w:tc><w:p>B!</w:p></w:tc></w:tr></w:tbl></w:body></w:document>"#
+        );
+    }
+
+    #[test]
+    fn table_whose_text_engine_dropped_is_still_paired() {
+        // 엔진이 표 안 글자(x)를 빠뜨려 표지가 달라도 표가 두 벌이 되면 안 된다
+        let o = r#"<w:document xmlns:w="W"><w:body><w:p>a</w:p><w:tbl><w:tr><w:tc><w:p>x</w:p></w:tc></w:tr><w:tr><w:tc><w:p>b</w:p></w:tc></w:tr></w:tbl></w:body></w:document>"#;
+        let b0 = r#"<w:document xmlns:w="W"><w:body><w:p>a</w:p><w:tbl><w:tr><w:tc><w:p></w:p></w:tc></w:tr><w:tr><w:tc><w:p>b</w:p></w:tc></w:tr></w:tbl></w:body></w:document>"#;
+        let b1 = r#"<w:document xmlns:w="W"><w:body><w:p>a</w:p><w:tbl><w:tr><w:tc><w:p></w:p></w:tc></w:tr><w:tr><w:tc><w:p>B!</w:p></w:tc></w:tr></w:tbl></w:body></w:document>"#;
+        let (m, ..) = merge_xml(o.as_bytes(), b0.as_bytes(), b1.as_bytes(), None).unwrap();
+        let m = String::from_utf8(m).unwrap();
+        assert_eq!(m.matches("<w:tbl>").count(), 1, "{m}");
+        assert!(m.contains("<w:p>x</w:p>") && m.contains("B!"), "{m}");
     }
 
     #[test]
