@@ -65,6 +65,7 @@ const COMMANDS: &[CommandInfo] = &[
     CommandInfo { id: "page.break", ko: "쪽 나눔", en: "Page break", params: "section,para,offset" },
     // ── 읽기
     CommandInfo { id: "doc.pageCount", ko: "쪽 수", en: "Page count", params: "" },
+    CommandInfo { id: "layout.cells", ko: "표 칸 배치", en: "Table cell boxes", params: "table" },
     CommandInfo { id: "doc.text", ko: "본문 글자", en: "Body text", params: "section?" },
     CommandInfo { id: "text.find", ko: "찾기", en: "Find text", params: "find" },
     CommandInfo { id: "table.getRow", ko: "행 읽기", en: "Get row", params: "table,row" },
@@ -167,6 +168,11 @@ impl Session {
     pub fn open(data: Vec<u8>) -> Result<Self, String> {
         let doc = open(&data)?;
         Ok(Session { original: data, doc })
+    }
+
+    /// 열 때 받은 원본 바이트
+    pub fn original(&self) -> &[u8] {
+        &self.original
     }
 
     fn table(&self, no: usize) -> Result<TableAt, String> {
@@ -458,6 +464,24 @@ impl Session {
         }
         Ok(match id {
             "doc.pageCount" => json!({ "pages": self.doc.page_count() }),
+            "layout.cells" => {
+                // 렌더 트리에서 잰 칸 자리·크기(pt). 쪽에 걸친 표는 처음 놓인 쪽 기준.
+                let at = self.table(us(p, "table")?)?;
+                let doc = &self.doc;
+                // 표가 렌더 트리에 없으면 rhwp가 JsValue 오류를 만들다 멈출 수 있어 막아 둔다
+                let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    doc.get_table_cell_bboxes(at.section as u32, at.para as u32, at.control as u32, None).ok()
+                }));
+                let cells = r.ok().flatten().map(parsed).unwrap_or(json!([]));
+                let cells: Vec<Value> = cells
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|c| json!({"row": c["row"], "col": c["col"], "page": c["pageIndex"], "w": c["w"], "h": c["h"]}))
+                    .collect();
+                json!({ "cells": cells })
+            }
             "doc.text" => {
                 let doc = self.doc.document();
                 let only = p.get("section").and_then(Value::as_u64).map(|v| v as usize);
@@ -810,6 +834,7 @@ mod tests {
             ("table.insertColumn", json!({"table":0,"col":0})),
             ("table.deleteColumn", json!({"table":0,"col":1})),
             ("table.merge", json!({"table":0,"startRow":4,"startCol":1,"endRow":4,"endCol":2})),
+            ("layout.cells", json!({"table":0})),
             ("table.split", json!({"table":0,"row":4,"col":1})),
             ("table.columnWidths", json!({"table":0,"widths":[8000,12000,8000,12000]})),
             ("table.props", json!({"table":0,"props":{}})),

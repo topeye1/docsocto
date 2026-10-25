@@ -70,6 +70,10 @@ impl DocxEngine {
         let mut g = 0;
         for (ci, c) in r.cells.iter().enumerate() {
             if g == col {
+                // 세로로 합친 셀의 아래쪽(vMerge continue)은 화면에 없는 칸이다 — HWPX와 같게 거른다
+                if c.props.vmerge == wordcraft_doc::props::VMerge::Continue {
+                    return Err(format!("({row},{col})은 세로로 합쳐진 셀 안쪽입니다 — 합쳐진 셀의 왼쪽 위 좌표를 쓰십시오"));
+                }
                 return Ok((tb, row, ci));
             }
             g += c.span().max(1);
@@ -204,6 +208,33 @@ impl Engine for DocxEngine {
                 }
                 Value::Array(out)
             }
+            "doc.pageCount" => json!({"pages": self.s.layout().pages.len()}),
+            "layout.cells" => {
+                // WordCraft 배치의 칸 영역(pt). 쪽에 걸친 칸은 높이를 더하고 처음 놓인 쪽을 낸다. 칸 번호는 격자 열로 바꾼다.
+                let t = us(p, "table")?;
+                let tb = *self.tables().get(t).ok_or_else(|| format!("본문 최상위 표 {t}번이 없습니다"))?;
+                let spans: Vec<Vec<usize>> =
+                    self.doc().body[tb].as_table().unwrap().rows.iter().map(|r| r.cells.iter().map(|c| c.span().max(1)).collect()).collect();
+                let lay = self.s.layout();
+                let mut acc: std::collections::BTreeMap<(usize, usize), (usize, f32, f32, bool)> = Default::default();
+                for (pi, page) in lay.pages.iter().enumerate() {
+                    for it in &page.items {
+                        if let wordcraft_engine::layout::Placed::Cell { rect, covered: false, table, row, cell, story: wordcraft_doc::StoryRef::Body, clip } = it {
+                            if table.0.len() == 1 && table.0[0] as usize == tb {
+                                let e = acc.entry((*row, *cell)).or_insert((pi, 0.0, rect.w, false));
+                                e.1 += rect.h;
+                                e.3 |= *clip;
+                            }
+                        }
+                    }
+                }
+                let mut cells = Vec::new();
+                for ((r, ci), (page, h, w, clip)) in acc {
+                    let col: usize = spans.get(r).map(|sp| sp.iter().take(ci).sum()).unwrap_or(ci);
+                    cells.push(json!({"row": r, "col": col, "page": page, "w": (w * 10.0).round() / 10.0, "h": (h * 10.0).round() / 10.0, "clip": clip}));
+                }
+                json!({"cells": cells})
+            }
             "table.getCell" => {
                 let (tb, r, c) = self.cell_at(p)?;
                 let t = self.doc().body[tb].as_table().unwrap();
@@ -277,6 +308,10 @@ impl Engine for DocxEngine {
         let b0 = wordcraft_engine::io::save_bytes(&self.name, &orig_doc)?;
         let (bytes, report) = octodocs_preserve::preserve(&self.original, &b0, &b1).map_err(|e| e.to_string())?;
         Ok((bytes, serde_json::to_value(&report).unwrap_or_else(|_| json!({}))))
+    }
+
+    fn original(&self) -> Option<&[u8]> {
+        Some(&self.original)
     }
 
     fn native_commands(&self) -> Vec<(String, String, String)> {

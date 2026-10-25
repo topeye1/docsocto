@@ -67,6 +67,10 @@ pub trait Engine {
     fn save(&mut self) -> Result<(Vec<u8>, Value), String>;
     /// 엔진 고유 명령 목록 (id, 한글 이름, 영어 이름)
     fn native_commands(&self) -> Vec<(String, String, String)>;
+    /// 열 때 받은 원본 바이트(form.check가 원본 배치와 견준다). 배치가 없는 형식은 None.
+    fn original(&self) -> Option<&[u8]> {
+        None
+    }
 }
 
 /// 공통 명령: (id, 한글, 영어, 매개변수). 매개변수 뜻은 세 형식에서 같다.
@@ -102,6 +106,7 @@ pub const COMMON: &[(&str, &str, &str, &str)] = &[
     ("para.align", "정렬", "Align", "section,para,align(left|center|right|justify)"),
     ("form.slots", "채울 칸 뽑기", "List fillable slots", ""),
     ("form.fill", "칸 채우기", "Fill slots", "answers[{id,value|choose}]"),
+    ("form.check", "채운 양식 확인", "Check filled form", "out?(쪽 그림 폴더)"),
 ];
 
 /// 명령 하나 실행: 양식 명령(form.*)은 공통 층에서, 나머지는 엔진에서.
@@ -109,6 +114,7 @@ pub fn run(e: &mut dyn Engine, id: &str, p: &Value) -> Result<Value, String> {
     match id {
         "form.slots" => form::slots(e),
         "form.fill" => form::fill(e, p),
+        "form.check" => form::check(e, p),
         _ => e.run(id, p),
     }
 }

@@ -27,3 +27,6 @@
 
 - crates/octodocs — Octo Docs 명령줄·MCP. octodocs init|commands|inspect|run|new|render|mcp. 빌드: cargo build -p octodocs --release.
 - tools/m2/common_check.ps1 [-Out 폴더] — HWPX·docx 시료 전부에 같은 공통 명령 묶음을 octodocs로 돌려 보존 저장하고 한글·Word PDF로 원본과 비교(7절 '같은 명령이 docx와 HWPX에서 모두 동작').
+
+## M3 (tools/m3)
+- tools/m3/form_check.ps1 -Files <양식...> [-Out 폴더] — 양식마다 입력 칸 2개에 짧은 답/긴 답을 채워 form.check 결과(늘어난 행·쪽 수·남은 빈칸·쪽 그림)를 한 줄씩 낸다. 결과 JSON은 <Out>\<이름>.<short|long>.check.json.

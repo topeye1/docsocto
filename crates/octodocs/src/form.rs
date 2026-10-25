@@ -211,6 +211,93 @@ pub fn fill(e: &mut dyn Engine, p: &Value) -> Result<Value, String> {
     Ok(json!({"filled": ok, "failed": failed}))
 }
 
+/// 표마다 행 높이(행 안 칸 높이 중 가장 큰 것)와 그 행이 놓인 쪽.
+fn row_heights(e: &mut dyn Engine) -> Vec<Vec<(f64, u64, bool)>> {
+    let tables = e.run("table.list", &json!({})).ok().and_then(|v| v.as_array().cloned()).unwrap_or_default();
+    let mut out = Vec::new();
+    for t in tables {
+        let ti = t["table"].as_u64().unwrap_or(0);
+        let rows = t["rows"].as_u64().unwrap_or(0) as usize;
+        let mut h = vec![(0.0f64, u64::MAX, false); rows];
+        if let Ok(v) = e.run("layout.cells", &json!({"table": ti})) {
+            for c in v["cells"].as_array().cloned().unwrap_or_default() {
+                let r = c["row"].as_u64().unwrap_or(u64::MAX) as usize;
+                if let Some(slot) = h.get_mut(r) {
+                    slot.0 = slot.0.max(c["h"].as_f64().unwrap_or(0.0));
+                    slot.1 = slot.1.min(c["page"].as_u64().unwrap_or(u64::MAX));
+                    slot.2 |= c["clip"].as_bool().unwrap_or(false);
+                }
+            }
+        }
+        out.push(h);
+    }
+    out
+}
+
+fn pages(e: &mut dyn Engine) -> u64 {
+    e.run("doc.pageCount", &json!({})).ok().and_then(|v| v["pages"].as_u64()).unwrap_or(0)
+}
+
+/// form.check: 채운 뒤 배치를 원본 배치와 견준다(진행일지 A24 — 넘침은 렌더한 쪽에서 잰다).
+/// - 늘어난 행: 원본보다 높아진 표 행(글자가 칸 너비를 넘어 줄이 늘어난 것)
+/// - 쪽 수 변화, 남은 빈칸(form.slots에 아직 나오는 칸)
+/// - out 을 주면 HWPX는 문제가 난 쪽(없으면 1쪽)을 SVG로 낸다
+pub fn check(e: &mut dyn Engine, p: &Value) -> Result<Value, String> {
+    let fmt = e.format();
+    let orig = e.original().ok_or("이 형식은 배치 확인을 하지 않습니다(HWPX·docx만)")?.to_vec();
+    let mut before = crate::open(&format!("원본.{}", fmt.name()), orig)?;
+    let (rows0, pages0) = (row_heights(before.as_mut()), pages(before.as_mut()));
+    drop(before);
+    let (rows1, pages1) = (row_heights(e), pages(e));
+    let mut grown = Vec::new();
+    let mut bad_pages = std::collections::BTreeSet::new();
+    for (ti, (a, b)) in rows0.iter().zip(&rows1).enumerate() {
+        if a.len() != b.len() {
+            continue; // 행을 넣거나 지운 표는 견주지 않는다
+        }
+        for (r, (x, y)) in a.iter().zip(b).enumerate() {
+            // 높아졌거나, 높이가 고정된 행이라 글자가 잘리게 됐으면 넘침
+            if (y.0 > x.0 + 0.5 && x.0 > 0.0) || (y.2 && !x.2) {
+                let cells: Vec<String> = (0..64)
+                    .filter_map(|c| e.run("table.getCell", &json!({"table": ti, "row": r, "col": c})).ok().map(|v| v["text"].as_str().unwrap_or("").to_string()))
+                    .filter(|s| !s.trim().is_empty())
+                    .collect();
+                grown.push(json!({"table": ti, "row": r, "before": x.0, "after": y.0, "clipped": y.2 && !x.2, "page": y.1 + 1, "texts": cells}));
+                bad_pages.insert(y.1);
+            }
+        }
+    }
+    let left: Vec<Value> = slots(e)?["slots"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|s| matches!(s["kind"].as_str(), Some("empty" | "guide" | "template")))
+        .map(|s| json!({"id": s["id"], "label": s["label"], "kind": s["kind"]}))
+        .collect();
+    let mut pictures = Vec::new();
+    if let Some(dir) = p.get("out").and_then(Value::as_str) {
+        if matches!(fmt, crate::Format::Hwpx | crate::Format::Hwp) {
+            std::fs::create_dir_all(dir).map_err(|e| format!("{dir}: {e}"))?;
+            if bad_pages.is_empty() {
+                bad_pages.insert(0);
+            }
+            for pg in bad_pages.iter().filter(|p| **p != u64::MAX).take(10) {
+                let path = std::path::Path::new(dir).join(format!("쪽{}.svg", pg + 1)).to_string_lossy().to_string();
+                e.run("render.page", &json!({"page": pg, "path": path}))?;
+                pictures.push(json!(path));
+            }
+        }
+    }
+    Ok(json!({
+        "pages": {"before": pages0, "after": pages1},
+        "grown_rows": grown,
+        "unfilled": left,
+        "pictures": pictures,
+        "ok": grown.is_empty() && left.is_empty() && pages0 == pages1,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

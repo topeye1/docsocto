@@ -29,6 +29,10 @@ impl Engine for HwpxEngine {
         Ok((bytes, serde_json::to_value(&report).unwrap_or_else(|_| json!({}))))
     }
 
+    fn original(&self) -> Option<&[u8]> {
+        Some(self.s.original())
+    }
+
     fn native_commands(&self) -> Vec<(String, String, String)> {
         octodocs_ohwp::commands().iter().map(|c| (c.id.to_string(), c.ko.to_string(), c.en.to_string())).collect()
     }
