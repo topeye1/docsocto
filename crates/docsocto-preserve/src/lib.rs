@@ -86,6 +86,19 @@ struct Split {
 
 /// 문단 단위 자식이 들어 있는 요소를 찾는다: 기본은 루트, docx 본문은 `document` 아래 `body`.
 fn split(xml: &[u8]) -> Option<Split> {
+    // 맨 앞 BOM은 읽기 라이브러리가 건너뛰고 위치를 센다 — BOM을 떼고 나눈 뒤 위치를 BOM 길이만큼 민다.
+    if xml.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        let mut s = split(&xml[3..])?;
+        let sh = |r: &mut Range<usize>| *r = r.start + 3..r.end + 3;
+        s.head = 0..s.head.end + 3;
+        for (g, k) in s.kids.iter_mut() {
+            sh(g);
+            sh(k);
+        }
+        sh(&mut s.last_gap);
+        sh(&mut s.tail);
+        return Some(s);
+    }
     let mut r = Reader::from_reader(xml);
     r.config_mut().trim_text(false);
     let mut depth = 0usize;
@@ -862,6 +875,15 @@ mod tests {
         let m = String::from_utf8(m).unwrap();
         assert_eq!(m.matches("<w:tbl>").count(), 1, "{m}");
         assert!(m.contains("<w:p>x</w:p>") && m.contains("B!"), "{m}");
+    }
+
+    #[test]
+    fn bom_before_xml_keeps_head_intact() {
+        let o = "\u{feff}<r><p>a</p><p>b</p></r>";
+        let b0 = "<r><p>a</p><p>b</p></r>";
+        let b1 = "<r><p>a</p><p>B</p></r>";
+        let (m, ..) = merge_xml(o.as_bytes(), b0.as_bytes(), b1.as_bytes(), None).unwrap();
+        assert_eq!(String::from_utf8(m).unwrap(), "\u{feff}<r><p>a</p><p>B</p></r>");
     }
 
     #[test]
