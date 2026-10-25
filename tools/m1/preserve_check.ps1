@@ -1,7 +1,7 @@
 ﻿# M1-1 보존 저장 검증 (진행일지 A3).
-#   HWPX: O=양식, B0=rhwp 무변경 저장(공백→공백 치환), B1=rhwp 셀 쓰기(M0 산출물) → P=보존 저장
+#   HWPX: O=양식, B0=ohwp resave(진짜 무변경 저장), B1=rhwp 셀 쓰기(M0 산출물) → P=보존 저장
 #         한글로 P를 PDF로 내보내 원본 한글 PDF와 비교, 패키지 항목 비교.
-#   docx: O=시험 docx, B0=WordCraft 그냥 저장, B1=WordCraft 한 줄 쓰기 → P=보존 저장
+#   docx: O=시험 docx, B0=WordCraft 그냥 저장, B1=WordCraft 문서 끝에 한 줄 쓰기 → P=보존 저장
 #         Word로 P를 PDF로 내보내 원본 Word PDF와 비교, 패키지 항목 비교.
 # Word·한글은 파일마다 별도 프로세스, 제한 시간, 확인 창 자동 누름(tools/m0/dialogs.ps1).
 # usage: preserve_check.ps1 [-Out E:\OCTO\work\m1_out\preserve] [-Limit 55]
@@ -10,7 +10,7 @@ param([string]$Out = 'E:\OCTO\work\m1_out\preserve', [int]$Limit = 55,
 $ErrorActionPreference = 'Continue'
 $m0 = Join-Path (Split-Path $PSScriptRoot) 'm0'
 $pres = 'E:\OCTO\DOCS\target\release\docsocto-preserve.exe'
-$rh = 'E:\OCTO\work\rhwp\target\release\rhwp.exe'
+$ohwp = 'E:\OCTO\DOCS\target\release\ohwp.exe'
 $w0 = 'E:\OCTO\work\m0_out'
 foreach ($k in 'hwpx','hwp_pdf','docx','word_pdf','b0') { New-Item -ItemType Directory -Force (Join-Path $Out $k) | Out-Null }
 New-Item -ItemType Directory -Force $Share | Out-Null
@@ -35,7 +35,7 @@ $hwpOut = @()
 foreach ($f in Get-ChildItem 'E:\OCTO\DOCS\samples\m0\*.hwpx' | Where-Object Name -match '^\d\d_') {
   $b = $f.BaseName
   $b0 = Join-Path $Out "b0\$b.hwpx"; $b1 = Join-Path $w0 "${b}_edit.hwpx"; $p = Join-Path $Out "hwpx\$b.hwpx"
-  & $rh edit replace-text $f.FullName --find ' ' --replace ' ' -o $b0 > $null 2> $null
+  & $ohwp resave $f.FullName $b0 2> (Join-Path $Out "b0\$b.err")
   if (-not (Test-Path $b0)) { L "hwpx $b B0 failed"; continue }
   & $pres $f.FullName $b0 $b1 $p --report (Join-Path $Out "hwpx\$b.json") 2> (Join-Path $Out "hwpx\$b.err")
   $diff = python -I (Join-Path $m0 'zip_diff.py') $f.FullName $p | ConvertFrom-Json
@@ -44,7 +44,8 @@ foreach ($f in Get-ChildItem 'E:\OCTO\DOCS\samples\m0\*.hwpx' | Where-Object Nam
 }
 # 한글 내보내기: 한 프로세스에서 여러 파일 — 전체 제한은 파일 수 × 제한 시간
 $Limit0 = $Limit; $Limit = $Limit0 * [Math]::Max(1, $hwpOut.Count)
-$r = Run-Limited 'Hwp' (Join-Path $m0 'hwp_export.ps1') (@('-Out', (Join-Path $Out 'hwp_pdf'), '-Files') + $hwpOut) 'hwp'
+$lst = Join-Path $Out 'hwp_files.txt'; [IO.File]::WriteAllLines($lst, [string[]]$hwpOut, (New-Object Text.UTF8Encoding $false))
+$r = Run-Limited 'Hwp' (Join-Path $m0 'hwp_export.ps1') @('-Out', (Join-Path $Out 'hwp_pdf'), '-ListFile', $lst) 'hwp'
 $Limit = $Limit0
 L "hangul export: $(if ($r -eq 'timeout') { 'timeout' } else { 'done' })"
 Get-Content (Join-Path $Out 'hwp_pdf\hwp_export.log') -Encoding utf8 -ErrorAction SilentlyContinue | % { L "  $_" }

@@ -1,8 +1,10 @@
 ﻿# M0: open each HWPX in Hancom Office (COM) and export PDF, one page per sheet.
 # Files whose settings.xml asks for N-up printing (PrintMethod != 0) are copied
 # to a temp folder with PrintMethod=0 first; the document body is untouched.
-# usage: hwp_export.ps1 -Out <dir> -Files <hwpx...>
-param([string]$Out, [string[]]$Files)
+# usage: hwp_export.ps1 -Out <dir> -Files <hwpx...>  또는  -ListFile <한 줄에 한 경로인 파일>
+param([string]$Out, [string[]]$Files, [string]$ListFile)
+# powershell -File 로 부르면 -Files 에 첫 경로만 들어간다 — 여러 파일은 -ListFile 로 넘긴다.
+if ($ListFile) { $Files = @(Get-Content $ListFile -Encoding utf8 | Where-Object { $_ }) }
 $ErrorActionPreference = 'Continue'
 New-Item -ItemType Directory -Force $Out | Out-Null
 $tmp = Join-Path $Out '_1up'

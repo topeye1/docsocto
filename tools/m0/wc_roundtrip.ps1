@@ -4,11 +4,12 @@
 #   3) compare  a) Word(original) vs Word(edited)   : nothing but the edit changed
 #               b) Word(original) vs WordCraft(original) : same rendering
 #      plus a part-by-part diff of original vs edited package.
+#   -AtEnd: type the line at the document end (only the last page should change).
 #   -NoEdit: open and save only (no typing) — isolates what saving alone changes.
 # usage: wc_roundtrip.ps1 [-Out E:\OCTO\work\m0_out\wc] [-Limit 55] [-NoEdit]
 param([string]$Out = 'E:\OCTO\work\m0_out\wc', [int]$Limit = 55,
       [string]$WordSrc = 'E:\OCTO\work\m0_out\xconv\d2h_word',
-      [string]$Share = 'E:\OCTO\DOCS\Docs\Docs-share\문서\M0', [switch]$NoEdit)
+      [string]$Share = 'E:\OCTO\DOCS\Docs\Docs-share\문서\M0', [switch]$NoEdit, [switch]$AtEnd)
 $ErrorActionPreference = 'Continue'
 $wc = 'E:\OCTO\work\wordcraft\target\release\wordcraft-cli.exe'
 $docx = Get-ChildItem 'E:\OCTO\DOCS\samples\m0_docx\*.docx' | Where-Object Name -match '^\d\d_'
@@ -24,7 +25,7 @@ foreach ($f in $docx) {
   & $wc convert $f.FullName (Join-Path $d.wc_src "$b.pdf") > $null 2> (Join-Path $Out "$b.conv.err"); $r.wc_pdf = $LASTEXITCODE
   & $wc info $f.FullName > (Join-Path $Out "$b.info.json") 2> $null; $r.wc_open = $LASTEXITCODE
   $ed = Join-Path $d.edit "$b.docx"
-  $cmds = New-Object Collections.ArrayList; $null = $cmds.Add('caret.docStart')
+  $cmds = New-Object Collections.ArrayList; $null = $cmds.Add($(if ($AtEnd) { 'caret.docEnd' } else { 'caret.docStart' }))
   if (-not $NoEdit) { $null = $cmds.Add(@{ command = 'text.insert'; params = @{ text = 'DocsOcto M0 시험' } }) }
   $js = @{ file = $f.FullName; commands = $cmds;
            save = @($ed, (Join-Path $d.wc_edit "$b.pdf")) } | ConvertTo-Json -Depth 5

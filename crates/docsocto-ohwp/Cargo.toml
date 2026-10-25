@@ -1,0 +1,15 @@
+[package]
+name = "docsocto-ohwp"
+description = "ohwp: rhwp 기반 HWPX 편집 엔진 (DocsOcto)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# 진행일지 A2: 로컬 포크를 경로로 참조한다(공개 준비 M5에서 저장소 편입 방식 확정)
+rhwp = { path = "../../../work/rhwp" }
+
+[[bin]]
+name = "ohwp"
+path = "src/main.rs"
