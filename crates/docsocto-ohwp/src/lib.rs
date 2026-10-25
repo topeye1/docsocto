@@ -17,6 +17,13 @@ pub fn resave_hwpx(data: &[u8]) -> Result<Vec<u8>, String> {
     doc.export_hwpx_native().map_err(|e| format!("저장 실패: {e:?}"))
 }
 
+/// 빈 HWPX 문서(새 문서 만들기).
+pub fn blank_hwpx() -> Result<Vec<u8>, String> {
+    let mut d = HwpDocument::create_empty();
+    d.create_blank_document_native().map_err(|e| format!("빈 문서 만들기 실패: {e:?}"))?;
+    d.export_hwpx_native().map_err(|e| format!("저장 실패: {e:?}"))
+}
+
 fn open(data: &[u8]) -> Result<HwpDocument, String> {
     HwpDocument::from_bytes(data).map_err(|e| format!("열기 실패: {e:?}"))
 }
