@@ -6,6 +6,7 @@
 //! 저장은 원본을 덮어쓰지 않고(5절), docx·HWPX는 보존 저장을 거친다.
 
 pub mod docx;
+pub mod form;
 pub mod hwpx;
 pub mod i18n;
 pub mod mcp;
@@ -98,7 +99,18 @@ pub const COMMON: &[(&str, &str, &str, &str)] = &[
     ("format.italic", "기울임", "Italic", "section,para,start,end,on?"),
     ("format.underline", "밑줄", "Underline", "section,para,start,end,on?"),
     ("para.align", "정렬", "Align", "section,para,align(left|center|right|justify)"),
+    ("form.slots", "채울 칸 뽑기", "List fillable slots", ""),
+    ("form.fill", "칸 채우기", "Fill slots", "answers[{id,value|choose}]"),
 ];
+
+/// 명령 하나 실행: 양식 명령(form.*)은 공통 층에서, 나머지는 엔진에서.
+pub fn run(e: &mut dyn Engine, id: &str, p: &Value) -> Result<Value, String> {
+    match id {
+        "form.slots" => form::slots(e),
+        "form.fill" => form::fill(e, p),
+        _ => e.run(id, p),
+    }
+}
 
 pub fn is_common(id: &str) -> bool {
     COMMON.iter().any(|c| c.0 == id)

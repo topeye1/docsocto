@@ -141,7 +141,7 @@ fn run(args: &[String]) -> Result<(), String> {
     let data = std::fs::read(&input).map_err(|e| format!("{input}: {e}"))?;
     let mut e = docsocto::open(&input, data)?;
     for (id, p) in &cmds {
-        let v = e.run(id, p).map_err(|err| format!("{id}: {err}"))?;
+        let v = docsocto::run(e.as_mut(), id, p).map_err(|err| format!("{id}: {err}"))?;
         println!("{}", json!({"command": id, "result": v}));
     }
     if let Some(out) = save {

@@ -68,7 +68,7 @@ impl Server {
             "run" => {
                 let h = s("handle")?;
                 let d = self.docs.get_mut(&h).ok_or("열린 문서가 아닙니다(handle 확인)")?;
-                d.engine.run(&s("command")?, a.get("params").unwrap_or(&json!({})))
+                crate::run(d.engine.as_mut(), &s("command")?, a.get("params").unwrap_or(&json!({})))
             }
             "save" => {
                 let h = s("handle")?;
