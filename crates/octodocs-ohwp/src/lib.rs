@@ -66,6 +66,7 @@ const COMMANDS: &[CommandInfo] = &[
     // ── 읽기
     CommandInfo { id: "doc.pageCount", ko: "쪽 수", en: "Page count", params: "" },
     CommandInfo { id: "layout.cells", ko: "표 칸 배치", en: "Table cell boxes", params: "table" },
+    CommandInfo { id: "layout.overflows", ko: "쪽 아래 넘침", en: "Page-bottom overflows", params: "" },
     CommandInfo { id: "doc.text", ko: "본문 글자", en: "Body text", params: "section?" },
     CommandInfo { id: "text.find", ko: "찾기", en: "Find text", params: "find" },
     CommandInfo { id: "table.getRow", ko: "행 읽기", en: "Get row", params: "table,row" },
@@ -482,6 +483,21 @@ impl Session {
                     .collect();
                 json!({ "cells": cells })
             }
+            "layout.overflows" => {
+                // 본문 아래로 삐져나온 요소(px). 한글은 이런 요소를 다음 쪽으로 넘기므로 쪽 수가 는다.
+                use rhwp::diagnostics::layout_anomaly::{scan_document, AnomalyOptions};
+                let core: &rhwp::document_core::DocumentCore = &self.doc;
+                let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| scan_document(core, &AnomalyOptions::default())));
+                let mut out = Vec::new();
+                if let Ok(Ok(a)) = r {
+                    for pg in &a.pages {
+                        for o in pg.overflow.iter().filter(|o| o.over_bottom > 1.0) {
+                            out.push(json!({"page": pg.page, "type": o.node_type, "path": o.path, "over": (o.over_bottom * 10.0).round() / 10.0}));
+                        }
+                    }
+                }
+                json!({ "overflows": out })
+            }
             "doc.text" => {
                 let doc = self.doc.document();
                 let only = p.get("section").and_then(Value::as_u64).map(|v| v as usize);
@@ -835,6 +851,7 @@ mod tests {
             ("table.deleteColumn", json!({"table":0,"col":1})),
             ("table.merge", json!({"table":0,"startRow":4,"startCol":1,"endRow":4,"endCol":2})),
             ("layout.cells", json!({"table":0})),
+            ("layout.overflows", json!({})),
             ("table.split", json!({"table":0,"row":4,"col":1})),
             ("table.columnWidths", json!({"table":0,"widths":[8000,12000,8000,12000]})),
             ("table.props", json!({"table":0,"props":{}})),

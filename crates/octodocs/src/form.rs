@@ -234,21 +234,34 @@ fn row_heights(e: &mut dyn Engine) -> Vec<Vec<(f64, u64, bool)>> {
     out
 }
 
+/// 쪽마다 본문 아래로 넘친 최대 길이(px). 이 명령이 없는 엔진(docx)은 비어 있다.
+fn overflows(e: &mut dyn Engine) -> std::collections::BTreeMap<u64, f64> {
+    let mut m = std::collections::BTreeMap::new();
+    if let Ok(v) = e.run("layout.overflows", &json!({})) {
+        for o in v["overflows"].as_array().cloned().unwrap_or_default() {
+            let (pg, over) = (o["page"].as_u64().unwrap_or(0), o["over"].as_f64().unwrap_or(0.0));
+            let s = m.entry(pg).or_insert(0.0f64);
+            *s = s.max(over);
+        }
+    }
+    m
+}
+
 fn pages(e: &mut dyn Engine) -> u64 {
     e.run("doc.pageCount", &json!({})).ok().and_then(|v| v["pages"].as_u64()).unwrap_or(0)
 }
 
 /// form.check: 채운 뒤 배치를 원본 배치와 견준다(진행일지 A24 — 넘침은 렌더한 쪽에서 잰다).
 /// - 늘어난 행: 원본보다 높아진 표 행(글자가 칸 너비를 넘어 줄이 늘어난 것)
-/// - 쪽 수 변화, 남은 빈칸(form.slots에 아직 나오는 칸)
+/// - 쪽 수 변화, 쪽 아래 넘침(page_spill — 한글에서 쪽이 늘 자리), 남은 빈칸(form.slots에 아직 나오는 칸)
 /// - out 을 주면 HWPX는 문제가 난 쪽(없으면 1쪽)을 SVG로 낸다
 pub fn check(e: &mut dyn Engine, p: &Value) -> Result<Value, String> {
     let fmt = e.format();
     let orig = e.original().ok_or("이 형식은 배치 확인을 하지 않습니다(HWPX·docx만)")?.to_vec();
     let mut before = crate::open(&format!("원본.{}", fmt.name()), orig)?;
-    let (rows0, pages0) = (row_heights(before.as_mut()), pages(before.as_mut()));
+    let (rows0, pages0, over0) = (row_heights(before.as_mut()), pages(before.as_mut()), overflows(before.as_mut()));
     drop(before);
-    let (rows1, pages1) = (row_heights(e), pages(e));
+    let (rows1, pages1, over1) = (row_heights(e), pages(e), overflows(e));
     let mut grown = Vec::new();
     let mut bad_pages = std::collections::BTreeSet::new();
     for (ti, (a, b)) in rows0.iter().zip(&rows1).enumerate() {
@@ -265,6 +278,14 @@ pub fn check(e: &mut dyn Engine, p: &Value) -> Result<Value, String> {
                 grown.push(json!({"table": ti, "row": r, "before": x.0, "after": y.0, "clipped": y.2 && !x.2, "page": y.1 + 1, "texts": cells}));
                 bad_pages.insert(y.1);
             }
+        }
+    }
+    // 본문 아래로 새로 넘친 쪽: 엔진은 쪽 수를 그대로 두지만 한글은 넘친 것을 다음 쪽으로 보낸다(M3-5 실측 7→8쪽)
+    let mut spill = Vec::new();
+    for (pg, over) in &over1 {
+        if *over > over0.get(pg).copied().unwrap_or(0.0) + 1.0 {
+            spill.push(json!({"page": pg + 1, "over_px": over}));
+            bad_pages.insert(*pg);
         }
     }
     let left: Vec<Value> = slots(e)?["slots"]
@@ -292,9 +313,10 @@ pub fn check(e: &mut dyn Engine, p: &Value) -> Result<Value, String> {
     Ok(json!({
         "pages": {"before": pages0, "after": pages1},
         "grown_rows": grown,
+        "page_spill": spill,
         "unfilled": left,
         "pictures": pictures,
-        "ok": grown.is_empty() && left.is_empty() && pages0 == pages1,
+        "ok": grown.is_empty() && spill.is_empty() && left.is_empty() && pages0 == pages1,
     }))
 }
 
