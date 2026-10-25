@@ -13,6 +13,8 @@ $jobs = @()
 Get-ChildItem (Join-Path $Out 'h2d_docx\*.docx') | % { $jobs += ,@('h2d', $_.FullName, (Join-Path $Out "h2d_word\$($_.BaseName).pdf")) }
 $docx | % { $jobs += ,@('d2h', $_.FullName, (Join-Path $Out "d2h_word\$($_.BaseName).pdf")) }
 $one = Join-Path $PSScriptRoot 'word_pdf.ps1'
+. (Join-Path $PSScriptRoot 'dialogs.ps1')
+$dlog = Join-Path $Out 'dialogs.log'
 $rows = @()
 foreach ($j in $jobs) {
   Get-Process WINWORD -ErrorAction SilentlyContinue | Stop-Process -Force
@@ -20,7 +22,9 @@ foreach ($j in $jobs) {
   $t0 = Get-Date
   $p = Start-Process powershell -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',"`"$one`"","`"$($j[1])`"","`"$($j[2])`"" -RedirectStandardOutput $o -RedirectStandardError $e -PassThru -WindowStyle Hidden
   $st = 'ok'
-  if (-not $p.WaitForExit($Limit * 1000)) { $st = 'timeout'; $p.Kill(); Get-Process WINWORD -ErrorAction SilentlyContinue | Stop-Process -Force }
+  $end = (Get-Date).AddSeconds($Limit)
+  while (-not $p.WaitForExit(2000) -and (Get-Date) -lt $end) { $null = Close-Dialogs 'WINWORD' $dlog }
+  if (-not $p.HasExited) { $st = 'timeout'; $p.Kill(); Get-Process WINWORD -ErrorAction SilentlyContinue | Stop-Process -Force }
   $pg = (Select-String -Path $o -Pattern '^PAGES=(\d+)' -ErrorAction SilentlyContinue).Matches.Groups[1].Value
   if ($st -eq 'ok' -and -not $pg) { $m = (Get-Content $e -ErrorAction SilentlyContinue) -join ' '; $st = 'error: ' + $m.Substring(0, [Math]::Min(200, $m.Length)) }
   $r = [pscustomobject]@{ dir = $j[0]; file = (Split-Path $j[1] -Leaf); word_pages = $pg; sec = [int]((Get-Date) - $t0).TotalSeconds; status = $st }
