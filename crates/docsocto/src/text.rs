@@ -76,12 +76,16 @@ impl TextEngine {
     /// 새 줄을 i 자리에 넣는다. 마지막 줄 뒤에 붙일 때는 앞줄에 줄바꿈을 준다.
     fn insert_line(&mut self, i: usize, text: String) {
         if i >= self.lines.len() {
+            // 파일이 줄바꿈으로 끝났으면 새 마지막 줄도 줄바꿈으로 끝낸다
+            let mut tail = String::new();
             if let Some(last) = self.lines.last_mut() {
                 if last.1.is_empty() {
                     last.1 = self.eol.clone();
+                } else {
+                    tail = self.eol.clone();
                 }
             }
-            self.lines.push((text, String::new()));
+            self.lines.push((text, tail));
         } else {
             self.lines.insert(i, (text, self.eol.clone()));
         }

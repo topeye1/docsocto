@@ -7,3 +7,9 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/topeye1/docsocto"
+
+# WordCraft(craft-pdf)가 요구하는 krilla 수정판 — WordCraft 작업공간 설정을 그대로 옮긴다
+[patch.crates-io]
+krilla = { git = "https://github.com/storytold/craft-libs", rev = "17744430be327d0257496a6a31c8d38fe20a6756" }
+# rhwp가 쓰는 svg2pdf 수정판(rhwp 작업공간 설정과 같게)
+svg2pdf = { path = "../work/rhwp/vendor/svg2pdf" }
