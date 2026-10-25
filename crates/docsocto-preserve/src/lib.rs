@@ -373,6 +373,76 @@ impl<'a> RelMap<'a> {
     }
 }
 
+/// 머리(루트 시작 태그 등)에 선언된 이름공간 `xmlns:접두사="URI"` 목록.
+fn ns_decls(head: &[u8]) -> Vec<(String, String)> {
+    let s = String::from_utf8_lossy(head);
+    let mut out = Vec::new();
+    let mut rest = &s[..];
+    while let Some(i) = rest.find("xmlns:") {
+        rest = &rest[i + 6..];
+        let Some(eq) = rest.find('=') else { break };
+        let pfx = rest[..eq].trim().to_string();
+        let after = &rest[eq + 1..];
+        let q = after.chars().next().unwrap_or('"');
+        if let Some(end) = after[1..].find(q) {
+            out.push((pfx, after[1..1 + end].to_string()));
+        }
+    }
+    out
+}
+
+/// 자식 안에서 쓰는 요소·속성 접두사.
+fn used_prefixes(snippet: &[u8]) -> std::collections::BTreeSet<String> {
+    let mut out = std::collections::BTreeSet::new();
+    let mut r = Reader::from_reader(snippet);
+    loop {
+        match r.read_event() {
+            Ok(Event::Start(e)) | Ok(Event::Empty(e)) => {
+                if let Some(p) = e.name().prefix() {
+                    out.insert(p.as_ref().to_string());
+                }
+                for a in e.attributes().flatten() {
+                    if let Some(p) = a.key.prefix() {
+                        if p.as_ref() != "xmlns" && p.as_ref() != "xml" {
+                            out.insert(p.as_ref().to_string());
+                        }
+                    }
+                }
+            }
+            Ok(Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+    }
+    out
+}
+
+/// 엔진 저장본에서 가져온 자식이 원본 루트에 없는 이름공간을 쓰면, 그 선언을 자식의 첫 태그에 붙인다.
+fn fix_namespaces(snippet: Vec<u8>, b1_decls: &[(String, String)], o_decls: &[(String, String)]) -> Vec<u8> {
+    let used = used_prefixes(&snippet);
+    let text = String::from_utf8_lossy(&snippet);
+    let mut add = String::new();
+    for p in &used {
+        let in_o = o_decls.iter().any(|(k, _)| k == p);
+        if in_o || text.contains(&format!("xmlns:{p}=")) {
+            continue;
+        }
+        if let Some((_, uri)) = b1_decls.iter().find(|(k, _)| k == p) {
+            add.push_str(&format!(" xmlns:{p}=\"{uri}\""));
+        }
+    }
+    if add.is_empty() {
+        return snippet;
+    }
+    // 첫 태그 이름 바로 뒤에 넣는다
+    let Some(lt) = snippet.iter().position(|&c| c == b'<') else { return snippet };
+    let end = snippet[lt + 1..].iter().position(|&c| c == b' ' || c == b'>' || c == b'/' || c == b'\t' || c == b'\r' || c == b'\n').map(|i| lt + 1 + i).unwrap_or(snippet.len());
+    let mut out = Vec::with_capacity(snippet.len() + add.len());
+    out.extend_from_slice(&snippet[..end]);
+    out.extend_from_slice(add.as_bytes());
+    out.extend_from_slice(&snippet[end..]);
+    out
+}
+
 fn is_xml(name: &str) -> bool {
     name.ends_with(".xml") || name.ends_with(".rels") || name.ends_with(".hpf")
 }
@@ -429,13 +499,15 @@ fn merge_xml(o: &[u8], b0: &[u8], b1: &[u8], rel: Option<&mut RelMap>) -> Result
     out.extend_from_slice(&o[so.head.clone()]);
     let (mut kept, mut taken) = (0, 0);
     let mut rel = rel;
+    let (b1_decls, o_decls) = (ns_decls(&b1[s1.head.clone()]), ns_decls(&o[so.head.clone()]));
     let mut emit_b1 = |out: &mut Vec<u8>, j: usize, taken: &mut usize| {
         let (g, k) = &s1.kids[j];
         out.extend_from_slice(&b1[g.clone()]);
-        match rel.as_deref_mut() {
-            Some(m) => out.extend_from_slice(&m.rewrite(&b1[k.clone()])),
-            None => out.extend_from_slice(&b1[k.clone()]),
-        }
+        let snippet = match rel.as_deref_mut() {
+            Some(m) => m.rewrite(&b1[k.clone()]),
+            None => b1[k.clone()].to_vec(),
+        };
+        out.extend_from_slice(&fix_namespaces(snippet, &b1_decls, &o_decls));
         *taken += 1;
     };
     for s in &ob {
@@ -648,6 +720,18 @@ mod tests {
         assert_eq!(
             String::from_utf8(m).unwrap(),
             r#"<r><p a='1'><t>a</t></p><bm n='x'/><p a="1"><t>B</t></p><p a='1'><t>c</t></p></r>"#
+        );
+    }
+
+    #[test]
+    fn namespaces_used_by_engine_child_are_declared() {
+        let o = r#"<w:document xmlns:w="W"><w:body><w:p>a</w:p><w:p>b</w:p></w:body></w:document>"#;
+        let b0 = r#"<w:document xmlns:w="W" xmlns:a="A"><w:body><w:p>a</w:p><w:p>b</w:p></w:body></w:document>"#;
+        let b1 = r#"<w:document xmlns:w="W" xmlns:a="A"><w:body><w:p>a</w:p><w:p><a:graphic/>b!</w:p></w:body></w:document>"#;
+        let (m, ..) = merge_xml(o.as_bytes(), b0.as_bytes(), b1.as_bytes(), None).unwrap();
+        assert_eq!(
+            String::from_utf8(m).unwrap(),
+            r#"<w:document xmlns:w="W"><w:body><w:p>a</w:p><w:p xmlns:a="A"><a:graphic/>b!</w:p></w:body></w:document>"#
         );
     }
 
