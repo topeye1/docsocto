@@ -305,7 +305,9 @@ impl Reader<'_> {
                 out.push(Block::Break);
             }
             let runs = self.runs(p);
-            let has_text = runs.iter().any(|(t, s)| s.is_some() && !t.is_empty());
+            // 표·그림을 품은 문단의 빈칸은 글로 치지 않는다 — 한글은 그 문단 높이가 표 높이뿐인데 Word 에는 빈칸 줄이
+            // 표 앞에 따로 들어가 칸 안 흐름표마다 한 줄씩 길었다(08 사업계획서)
+            let has_text = runs.iter().any(|(t, s)| s.is_some() && !t.trim().is_empty());
             let objects: Vec<&Control> = p.controls.iter().filter(|c| matches!(c, Control::Table(_) | Control::Picture(_))).collect();
             let para = self.para(p, runs);
             if has_text || objects.is_empty() {
