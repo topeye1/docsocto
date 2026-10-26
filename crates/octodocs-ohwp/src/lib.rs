@@ -106,6 +106,7 @@ const COMMANDS: &[CommandInfo] = &[
     CommandInfo { id: "para.spacingAfter", ko: "문단 아래 간격", en: "Space after", params: "section,para,value" },
     // ── 표
     CommandInfo { id: "table.create", ko: "표 만들기", en: "Create table", params: "section,para,offset,rows,cols" },
+    CommandInfo { id: "page.setup", ko: "쪽 설정", en: "Page setup", params: "section?,width?,height?,left?,right?,top?,bottom?(pt)" },
     CommandInfo { id: "table.splitAt", ko: "표 나누기", en: "Split table", params: "table,row" },
     CommandInfo { id: "table.mergeNext", ko: "다음 표와 붙이기", en: "Merge with next table", params: "table" },
     CommandInfo { id: "table.props", ko: "표 속성", en: "Table properties", params: "table,props{}" },
@@ -287,6 +288,20 @@ impl Session {
         ];
         if !READS.contains(&id) && !self.doc.document().provenance.session_edited {
             self.doc.document_mut().provenance.session_edited = true;
+        }
+        // 글자 모양의 글꼴 이름은 글꼴 번호로 바꿔 넣는다(없으면 문서 글꼴 목록에 더함) — M4 흐름 방식
+        if matches!(id, "format.char" | "table.cellCharFormat") {
+            if let Some(name) = p.pointer("/props/fontName").and_then(Value::as_str) {
+                let fid = self.doc.find_or_create_font_id_native(name);
+                let mut q = p.clone();
+                if let Some(Value::Object(m)) = q.get_mut("props") {
+                    m.remove("fontName");
+                    if fid >= 0 {
+                        m.insert("fontId".into(), json!(fid));
+                    }
+                }
+                return self.run(id, &q);
+            }
         }
         Ok(match id {
             "doc.info" => {
@@ -634,6 +649,19 @@ impl Session {
                 }
                 self.last_shape = Some((sec, pi, ctrl));
                 json!({ "section": sec, "para": pi, "control": ctrl })
+            }
+            "page.setup" => {
+                // 쪽 크기·여백(pt) — M4 흐름 방식이 HTML @page 를 옮긴다. 머리말·꼬리말 여백은 0.
+                let sec = us_or(p, "section", 0);
+                let mut m = serde_json::Map::new();
+                for (k, key) in [("width", "width"), ("height", "height"), ("left", "marginLeft"), ("right", "marginRight"), ("top", "marginTop"), ("bottom", "marginBottom")] {
+                    if let Some(v) = p.get(k).and_then(Value::as_f64) {
+                        m.insert(key.into(), json!((v * 100.0).round().max(0.0) as u32));
+                    }
+                }
+                m.insert("marginHeader".into(), json!(0));
+                m.insert("marginFooter".into(), json!(0));
+                parsed(self.doc.set_page_def_native(sec, &Value::Object(m).to_string()).map_err(engine)?)
             }
             "picture.add" => {
                 // 쪽(Paper) 기준 그림 — 한글이 그대로 못 그리는 장식(그러데이션 등)을 그림으로 넣는다(M4)
@@ -1064,6 +1092,7 @@ mod tests {
             ("table.splitAt", json!({"table":0,"row":2})),
             ("table.mergeNext", json!({"table":0})),
             ("table.create", json!({"section":0,"para":0,"offset":0,"rows":2,"cols":2})),
+            ("page.setup", json!({"left":42.5,"right":42.5,"top":39.7,"bottom":45.4})),
             ("table.delete", json!({"table":0})),
             ("para.text", body(json!({}))),
             ("para.insert", body(json!({}))),

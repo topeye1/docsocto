@@ -19,6 +19,9 @@
     for (const k of KEEP) node.style[k] = cs.getPropertyValue(k);
     if (el.tagName === 'IMG') node.src = el.currentSrc || el.src;
     if (el.tagName === 'TD' || el.tagName === 'TH') { node.colspan = el.colSpan; node.rowspan = el.rowSpan; }
+    // ::before 글자(체크 칸 "☐ " 등)는 DOM 글자가 아니라 따로 받는다
+    const bc = getComputedStyle(el, '::before').content;
+    if (bc && bc !== 'none' && bc !== 'normal' && /^".*"$/.test(bc)) node.before = JSON.parse(bc);
     for (const c of el.childNodes) {
       if (c.nodeType === 1) {
         const k = walk(c, node);
