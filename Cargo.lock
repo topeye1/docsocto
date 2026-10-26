@@ -1327,6 +1327,7 @@ dependencies = [
  "octodocs-ohwp",
  "octodocs-preserve",
  "pdf-extract",
+ "png 0.17.16",
  "quick-xml 0.42.0",
  "serde",
  "serde_json",

@@ -53,8 +53,22 @@
     }
     return node;
   }
+  // @page 규칙(쪽 크기·여백) — 흐름 방식이 쪽 여백과 본문 폭을 정하는 데 쓴다
+  const pageRule = {};
+  for (const sh of document.styleSheets) {
+    let rules = [];
+    try { rules = sh.cssRules || []; } catch (e) { continue; }
+    for (const ru of rules) {
+      if (ru.type !== 6) continue; // CSSPageRule
+      for (const k of ['size', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left']) {
+        const v = ru.style.getPropertyValue(k);
+        if (v) pageRule[k] = v;
+      }
+    }
+  }
   const out = {
     page: { w: document.documentElement.scrollWidth, h: document.documentElement.scrollHeight },
+    pageRule,
     root: walk(document.body, null),
   };
   const pre = document.createElement('pre');

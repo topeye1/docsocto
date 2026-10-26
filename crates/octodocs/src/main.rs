@@ -15,6 +15,7 @@ fn main() -> ExitCode {
         Some("run") => run(&args[1..]),
         Some("new") if args.len() >= 2 => octodocs::new_document(&args[1], args.iter().any(|a| a == "--overwrite")).map(|p| println!("{p}")),
         Some("render") => render(&args[1..]),
+        Some("convert") => convert(&args[1..]),
         Some("mcp") => {
             octodocs::mcp::Server::new().serve();
             Ok(())
@@ -186,4 +187,30 @@ fn render(args: &[String]) -> Result<(), String> {
         }
         _ => Err("render 는 HWPX·docx만 됩니다".into()),
     }
+}
+
+fn convert(args: &[String]) -> Result<(), String> {
+    let mut pos = Vec::new();
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--mode" | "--report" => i += 1,
+            "--overwrite" => {}
+            a if a.starts_with("--") => return Err(format!("{a}?
+{}", t("usage"))),
+            a => pos.push(a.to_string()),
+        }
+        i += 1;
+    }
+    let [src, out] = pos.as_slice() else { return Err(t("usage")) };
+    if std::path::Path::new(out).exists() && !args.iter().any(|a| a == "--overwrite") {
+        return Err(format!("{out}: {}", t("exists")));
+    }
+    let mode = octodocs::convert::Mode::parse(&opt(args, "--mode").unwrap_or_else(|| "auto".into()))?;
+    let rep = octodocs::convert::convert(src, out, mode)?;
+    if let Some(r) = opt(args, "--report") {
+        std::fs::write(&r, pretty(&rep)).map_err(|e| format!("{r}: {e}"))?;
+    }
+    println!("{}", pretty(&rep));
+    Ok(())
 }

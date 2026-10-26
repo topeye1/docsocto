@@ -41,6 +41,8 @@ const USAGE_KO: &str = "Octo Docs — HWPX·docx·md·txt 문서 편집기
                                                        (출력을 안 주면 <원본>_수정.<확장자>)
   octodocs new <파일>                                   새 문서(확장자 없으면 기본 형식)
   octodocs render <파일> --page <N> --out <그림.svg|pdf> HWPX 쪽 그림
+  octodocs convert <원본.html> <결과.docx|hwpx> [--mode auto|flow|fixed] [--report <보고서.json>] [--overwrite]
+                                                       요청형 변환(Edge 가 그린 결과로) — 변환 보고서를 냄
   octodocs mcp                                          AI 연결(MCP, 표준 입출력)
 
 원본은 덮어쓰지 않습니다. 덮어쓰려면 --save 에 원본 경로와 --overwrite 를 함께 주십시오.";
@@ -57,6 +59,8 @@ Usage:
                                                        (default output <name>_수정.<ext>)
   octodocs new <file>                                   new document (no extension: default format)
   octodocs render <file> --page <N> --out <page.svg|pdf> render an HWPX page
+  octodocs convert <src.html> <out.docx|hwpx> [--mode auto|flow|fixed] [--report <report.json>] [--overwrite]
+                                                       convert on request (from what Edge draws), with a report
   octodocs mcp                                          AI connection (MCP over stdio)
 
 The original is never overwritten unless you pass its path to --save together with --overwrite.";

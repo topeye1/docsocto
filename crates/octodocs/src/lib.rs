@@ -5,6 +5,7 @@
 //! 그 형식의 엔진에 그대로 넘긴다(HWPX는 ohwp 명령, docx는 WordCraft 명령).
 //! 저장은 원본을 덮어쓰지 않고(5절), docx·HWPX는 보존 저장을 거친다.
 
+pub mod convert;
 pub mod docx;
 pub mod form;
 pub mod hwpx;

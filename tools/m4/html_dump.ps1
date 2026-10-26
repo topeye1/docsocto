@@ -10,7 +10,9 @@ $src = (Resolve-Path $Html).Path
 $tmp = Join-Path (Split-Path $src) ('.octodocs_dump_' + [IO.Path]::GetFileName($src))
 $js = Get-Content (Join-Path $PSScriptRoot 'html_dump.js') -Raw -Encoding UTF8
 $body = [IO.File]::ReadAllText($src, [Text.Encoding]::UTF8)
-[IO.File]::WriteAllText($tmp, $body + "`n<script>window.addEventListener('load',function(){$js});</script>", (New-Object Text.UTF8Encoding $false))
+# 그릴 폭은 html 폭으로 못박는다 — 같은 창 크기에서도 Edge 가 본문을 39px 좁게 그린 일이 있었다
+$fix = "<style>html{width:${WidthPx}px!important;min-width:${WidthPx}px!important;max-width:${WidthPx}px!important}</style>"
+[IO.File]::WriteAllText($tmp, $body + "`n$fix`n<script>window.addEventListener('load',function(){$js});</script>", (New-Object Text.UTF8Encoding $false))
 try {
   $prof = Join-Path $env:TEMP 'octodocs_edge_profile'
   $url = 'file:///' + ($tmp -replace '\\', '/')
