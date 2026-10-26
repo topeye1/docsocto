@@ -155,11 +155,35 @@ fn table(t: &Table) -> WTable {
     t.normalize();
     let t = &t;
     let widths: Vec<f32> = t.widths.iter().map(|w| w.unwrap_or(400.0 / t.cols as f64) as f32).collect();
+    // Word 는 행 높이에 그 행에서 시작하는 칸들의 가장 큰 위아래 여백을 더해 그렸다(01 사업신청서 22.3 → 28.4pt,
+    // 여백을 빼니 22.7pt; 세로로 합친 칸이 그 행에서 시작하면 그 칸의 여백) — 빼서 넣는다
+    let mut pad_v = vec![0.0f64; t.rows];
+    for cl in t.cells.iter().filter(|cl| cl.at.0 < t.rows) {
+        pad_v[cl.at.0] = pad_v[cl.at.0].max(cl.pad[0] + cl.pad[2]);
+    }
     let mut row_h = vec![0.0f64; t.rows];
     for cl in &t.cells {
         if cl.span.0 == 1 && cl.at.0 < t.rows {
-            // Word 는 행 높이에 칸 위아래 여백을 더해 그렸다(01 사업신청서 22.3 → 28.4pt, 여백을 빼니 22.7pt) — 빼서 넣는다
-            row_h[cl.at.0] = row_h[cl.at.0].max(cl.h - cl.pad[0] - cl.pad[2]);
+            row_h[cl.at.0] = row_h[cl.at.0].max(cl.h - pad_v[cl.at.0]);
+        }
+    }
+    // 세로로 합친 칸의 높이는 합친 행들의 합이다(한글은 행 높이를 따로 두지 않는다) — 모자라면 높이가 정해지지 않은
+    // 행에 나눠 주고, 없으면 마지막 행에 더한다. 합친 칸만 있는 행이 글 높이로 늘어 표가 길었다(01 사업신청서 참여 인력).
+    let mut multi: Vec<_> = t.cells.iter().filter(|cl| cl.span.0 > 1 && cl.h > 0.0 && cl.at.0 < t.rows).collect();
+    multi.sort_by_key(|cl| cl.span.0);
+    for cl in multi {
+        let rows = cl.at.0..(cl.at.0 + cl.span.0).min(t.rows);
+        let need = cl.h - pad_v[rows.clone()].iter().sum::<f64>();
+        let have: f64 = row_h[rows.clone()].iter().sum();
+        if need > have + 0.5 {
+            let free: Vec<usize> = rows.clone().filter(|&r| row_h[r] <= 0.0).collect();
+            if free.is_empty() {
+                row_h[rows.end - 1] += need - have;
+            } else {
+                for &r in &free {
+                    row_h[r] = (need - have) / free.len() as f64;
+                }
+            }
         }
     }
     let at = |r: usize, c: usize| t.cells.iter().find(|cl| cl.at == (r, c));
