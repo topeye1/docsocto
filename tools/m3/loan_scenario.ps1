@@ -8,8 +8,12 @@ New-Item -ItemType Directory -Force $Out | Out-Null
 $a = Get-Content "$root\tools\m3\loan_answers.json" -Raw -Encoding utf8 | ConvertFrom-Json
 $form = Join-Path $root $a.form
 $answers = @($a.answers | ForEach-Object { @{ id = $_.id; value = $_.value } })
-$cmds = @(
-  @{ command = 'form.fill'; params = @{ answers = $answers } },
+$cmds = @(@{ command = 'form.fill'; params = @{ answers = $answers } })
+# 결정 #32 다음 단계: 답을 줄여도 칸만 차도 높아지는 행은 채운 글자만 작게(fit: 표·행·pt)
+foreach ($f in @($a.fit)) { if ($f) { foreach ($r in $f.rows) {
+  foreach ($c in @($answers | Where-Object { $_.id -match "^t$($f.table)r$($r)c(\d+)$" } | ForEach-Object { [int]($_.id -replace '^t\d+r\d+c', '') })) {
+    $cmds += @{ command = 'table.cellFontSize'; params = @{ table = $f.table; row = $r; col = $c; pt = $f.pt } } } } } }
+$cmds += @(,
   @{ command = 'form.check'; params = @{ out = "$Out\check" } }
 )
 [IO.File]::WriteAllText("$Out\cmds.json", (ConvertTo-Json @{ commands = $cmds } -Depth 8), $utf8)
@@ -18,6 +22,7 @@ $t0 = Get-Date
 $lines = @(& $x run $form --script "$Out\cmds.json" --save $saved --overwrite 2> "$Out\run.err")
 "run: $([int]((Get-Date) - $t0).TotalMilliseconds)ms, 답 $($answers.Count)개"
 [IO.File]::WriteAllText("$Out\result.jsonl", ($lines -join "`n"), $utf8)
+$lines = @($lines | Where-Object { $_ -notlike '*"table.cellFontSize"*' })
 $fill = ($lines | Where-Object { $_ -like '*"form.fill"*' } | Select-Object -First 1 | ConvertFrom-Json).result
 $chk = ($lines | Where-Object { $_ -like '*"form.check"*' } | Select-Object -First 1 | ConvertFrom-Json).result
 "fill: 채움 $($fill.filled), 실패 $(@($fill.failed).Count) $(@($fill.failed) | ForEach-Object { "$($_.id):$($_.error)" })"
