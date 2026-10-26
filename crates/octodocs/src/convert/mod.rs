@@ -110,11 +110,100 @@ pub fn plan_html(src: &Path, to: Format, mode: Mode, tmp: &Path) -> Result<Plan,
             }
         }
         _ => {
-            let blocks = flow::blocks(&d["root"], &mut rep);
+            let mut blocks = flow::blocks(&d["root"], &mut rep);
+            resolve_images(&mut blocks, tmp, &mut rep);
             emit::emit(&blocks, hwpx, page)
         }
     };
     Ok(Plan { cmds, mode, report: rep, pages_hint: doc_h / content_h })
+}
+
+/// 그림 주소(file:·data:) → 로컬 파일. 못 읽는 그림(외부 주소·SVG)은 빼고 보고서에 적는다.
+fn resolve_images(blocks: &mut Vec<flow::Block>, tmp: &Path, rep: &mut Report) {
+    let mut n = 0;
+    blocks.retain_mut(|b| {
+        let flow::Block::Image(im) = b else { return true };
+        n += 1;
+        match image_file(&im.src, tmp, n) {
+            Some(p) => {
+                im.src = p.to_string_lossy().into_owned();
+                rep.note("image", "그림 — 글자처럼 취급하는 그림으로 넣음");
+                true
+            }
+            None => {
+                rep.skip("img(읽지 못한 주소·SVG)");
+                false
+            }
+        }
+    });
+}
+
+fn image_file(src: &str, tmp: &Path, n: usize) -> Option<std::path::PathBuf> {
+    let (bytes, path) = if let Some(rest) = src.strip_prefix("data:") {
+        let (meta, data) = rest.split_once(',')?;
+        if !meta.ends_with(";base64") {
+            return None;
+        }
+        let b = base64_decode(data)?;
+        let ext = if b.starts_with(b"\x89PNG") { "png" } else if b.starts_with(&[0xFF, 0xD8]) { "jpg" } else if b.starts_with(b"GIF8") { "gif" } else { return None };
+        let p = tmp.join(format!("img{n}.{ext}"));
+        std::fs::write(&p, &b).ok()?;
+        (b, p)
+    } else if let Some(rest) = src.strip_prefix("file:///") {
+        let p = std::path::PathBuf::from(percent_decode(rest));
+        (std::fs::read(&p).ok()?, p)
+    } else {
+        return None;
+    };
+    // 두 엔진이 받는 그림만(PNG·JPEG·GIF·BMP)
+    let ok = bytes.starts_with(b"\x89PNG") || bytes.starts_with(&[0xFF, 0xD8]) || bytes.starts_with(b"GIF8") || bytes.starts_with(b"BM");
+    ok.then_some(path)
+}
+
+fn percent_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' && i + 2 < b.len() {
+            if let Some(v) = std::str::from_utf8(&b[i + 1..i + 3]).ok().and_then(|h| u8::from_str_radix(h, 16).ok()) {
+                out.push(v);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(b[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+fn base64_decode(s: &str) -> Option<Vec<u8>> {
+    let val = |c: u8| -> Option<u32> {
+        Some(match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' | b'-' => 62,
+            b'/' | b'_' => 63,
+            _ => return None,
+        } as u32)
+    };
+    let mut out = Vec::new();
+    let (mut acc, mut bits) = (0u32, 0);
+    for &c in s.as_bytes() {
+        if c == b'=' || c.is_ascii_whitespace() {
+            continue;
+        }
+        acc = (acc << 6) | val(c)?;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+            acc &= (1 << bits) - 1;
+        }
+    }
+    Some(out)
 }
 
 fn blank(to: Format) -> Result<Vec<u8>, String> {

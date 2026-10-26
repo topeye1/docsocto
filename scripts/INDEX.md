@@ -36,3 +36,5 @@
 - tools/m4/dump2docx.py·dump2hwpx.py <덤프> <명령.json> — 자리 고정 방식(표지 한 쪽): 꾸민 상자=도형, 글=글상자, 그라데이션=그림.
 - tools/m4/flow.py <덤프> <docx|hwpx> <명령.json> — 흐름 방식(여러 쪽 본문): 문단·표·카드.
 - tools/m4/m4_check.ps1 [-Build] [-Only cover|body] [-Share] — 표지·본문을 docx·HWPX로 변환해 Word·한글 PDF를 Edge 원본과 비교(RESULT 줄).
+- crates/octodocs convert — `octodocs convert <원본.html> <결과.docx|hwpx> [--mode auto|flow|fixed] [--report r.json]`(제품 명령, MCP convert 도구). m4_check.ps1 -Rust 가 이 명령으로 표지·본문을 판정.
+- tools/m4/convert_check.ps1 -Html <원본> -Work <폴더> [-KeepEdge] — 아무 HTML 하나를 octodocs convert 로 docx·HWPX 로 바꿔 Edge 인쇄 PDF 와 Word·한글 PDF 비교.

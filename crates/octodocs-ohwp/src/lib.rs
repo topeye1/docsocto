@@ -69,6 +69,7 @@ const COMMANDS: &[CommandInfo] = &[
     CommandInfo { id: "layout.overflows", ko: "쪽 아래 넘침", en: "Page-bottom overflows", params: "" },
     CommandInfo { id: "shape.add", ko: "도형 넣기", en: "Add shape", params: "kind(rectangle|textbox|line|ellipse),x,y,w,h(pt, 쪽 기준),wrap?,fill?{color,alpha}|{gradient{angle,stops[{pos,color,alpha}]}},line?{color,width}|null,round?,margin?[l,t,r,b]" },
     CommandInfo { id: "picture.add", ko: "그림 넣기", en: "Add picture", params: "path,x,y,w,h(pt, 쪽 기준),wrap?(BehindText|InFrontOfText)" },
+    CommandInfo { id: "picture.inline", ko: "글자처럼 그림 넣기", en: "Add inline picture", params: "section?,para,path,w,h(pt) — 그림 뒤에 새 문단(next)을 연다" },
     CommandInfo { id: "shape.text", ko: "글상자 글", en: "Text box text", params: "control,text(\\n=새 문단),props?{fontSize,textColor,bold,fontName…},paraProps?{alignment,lineSpacing…}" },
     CommandInfo { id: "doc.text", ko: "본문 글자", en: "Body text", params: "section?" },
     CommandInfo { id: "text.find", ko: "찾기", en: "Find text", params: "find" },
@@ -166,6 +167,29 @@ fn png_size(d: &[u8]) -> Option<(u32, u32)> {
     }
     let be = |i: usize| u32::from_be_bytes([d[i], d[i + 1], d[i + 2], d[i + 3]]);
     Some((be(16), be(20)))
+}
+
+/// JPEG 화소 크기(SOF 마커)
+fn jpeg_size(d: &[u8]) -> Option<(u32, u32)> {
+    if d.len() < 4 || d[0] != 0xFF || d[1] != 0xD8 {
+        return None;
+    }
+    let mut i = 2;
+    while i + 9 < d.len() {
+        if d[i] != 0xFF {
+            i += 1;
+            continue;
+        }
+        let m = d[i + 1];
+        let len = u16::from_be_bytes([d[i + 2], d[i + 3]]) as usize;
+        if matches!(m, 0xC0..=0xC3 | 0xC5..=0xC7 | 0xC9..=0xCB | 0xCD..=0xCF) {
+            let h = u16::from_be_bytes([d[i + 5], d[i + 6]]) as u32;
+            let w = u16::from_be_bytes([d[i + 7], d[i + 8]]) as u32;
+            return Some((w, h));
+        }
+        i += 2 + len;
+    }
+    None
 }
 
 /// 글상자 문단별 글자 수
@@ -695,7 +719,31 @@ impl Session {
                     };
                 }
                 json!({ "section": sec, "para": pi, "control": ctrl })
-            }            "shape.text" => {
+            }
+            "picture.inline" => {
+                // 글자처럼 취급하는 그림 — 흐름 방식 본문의 <img>(M4). 문단 끝에 넣는다.
+                let (sec, para) = (us_or(p, "section", 0), us(p, "para")?);
+                let path = st(p, "path")?;
+                let data = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
+                let hu = |k: &str| -> Result<u32, String> {
+                    let v = p.get(k).and_then(Value::as_f64).ok_or_else(|| format!("매개변수 '{k}'(pt)가 필요합니다"))?;
+                    Ok((v * 100.0).round().max(1.0) as u32)
+                };
+                let ext = std::path::Path::new(path).extension().and_then(|e| e.to_str()).unwrap_or("png").to_lowercase();
+                let (w, h) = (hu("w")?, hu("h")?);
+                let (nw, nh) = png_size(&data).or_else(|| jpeg_size(&data)).unwrap_or((w / 75 + 1, h / 75 + 1));
+                let end = self.doc.document().sections.get(sec).and_then(|s| s.paragraphs.get(para)).map(|q| q.text.chars().count()).unwrap_or(0);
+                let r = parsed(self.doc.insert_picture_native(sec, para, end, &[], &data, w, h, nw, nh, &ext, "", None, None).map_err(engine)?);
+                let ctrl = r["controlIdx"].as_u64().ok_or("그림 번호를 받지 못했습니다")? as usize;
+                let pi = r["paraIdx"].as_u64().map(|v| v as usize).unwrap_or(para);
+                self.doc.set_picture_properties_native(sec, pi, ctrl, r#"{"treatAsChar":true}"#).map_err(engine)?;
+                // 그림 뒤에서 문단을 나눠 다음 글이 그림 아래 새 문단에 오게 한다. 글자 수로 끝을 잡는 para.append 는
+                // 글자 없는 그림 문단을 0에서 나눠 그림을 다음 문단으로 밀어냈다 — 그림 자리(logicalOffset)에서 나눈다.
+                let after = r["logicalOffset"].as_u64().map(|v| v as usize).unwrap_or(end + 1);
+                self.doc.split_paragraph_native(sec, pi, after, None).map_err(engine)?;
+                json!({ "section": sec, "para": pi, "control": ctrl, "next": pi + 1 })
+            }
+            "shape.text" => {
                 // 글상자 끝에 글을 붙인다. \n 은 새 문단. 붙인 글자에 글자 모양(props), 그 문단에 문단 모양(paraProps).
                 let (sec, para, ctrl) = match p.get("control").and_then(Value::as_u64) {
                     Some(c) => (us_or(p, "section", 0), us_or(p, "para", 0), c as usize),
@@ -1037,6 +1085,14 @@ mod tests {
     fn every_command_runs_on_a_real_form() {
         let tmp = std::env::temp_dir().join("ohwp_test_page.svg");
         let png = tmp.to_string_lossy().to_string();
+        // 1×1 PNG — picture.add·picture.inline 시험용
+        let pic = std::env::temp_dir().join("ohwp_test_pic.png");
+        std::fs::write(&pic, [
+            137u8, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 2, 0, 0, 0, 144, 119, 83, 222, 0, 0, 0, 12, 73, 68,
+            65, 84, 120, 156, 99, 248, 207, 192, 0, 0, 3, 1, 1, 0, 201, 254, 146, 239, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+        ])
+        .unwrap();
+        let pic = pic.to_string_lossy().to_string();
         let cell = |extra: Value| {
             let mut v = json!({"table":0,"row":1,"col":1});
             for (k, x) in extra.as_object().unwrap() {
@@ -1093,6 +1149,10 @@ mod tests {
             ("table.mergeNext", json!({"table":0})),
             ("table.create", json!({"section":0,"para":0,"offset":0,"rows":2,"cols":2})),
             ("page.setup", json!({"left":42.5,"right":42.5,"top":39.7,"bottom":45.4})),
+            ("shape.add", json!({"kind":"textbox","x":50,"y":50,"w":100,"h":30,"wrap":"InFrontOfText"})),
+            ("shape.text", json!({"text":"글상자","props":{"fontSize":1000,"useFontSpace":true}})),
+            ("picture.add", json!({"path": pic, "x":10,"y":10,"w":20,"h":20})),
+            ("picture.inline", json!({"para":0,"path": pic, "w":20,"h":20})),
             ("table.delete", json!({"table":0})),
             ("para.text", body(json!({}))),
             ("para.insert", body(json!({}))),

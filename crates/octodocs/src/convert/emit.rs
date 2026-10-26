@@ -150,6 +150,21 @@ impl Docx {
                 self.table(t);
                 self.prev_table = true;
             }
+            Block::Image(im) => {
+                if page_break {
+                    self.c("para.pageBreakBefore", json!({"value": true}));
+                }
+                self.c("para.align", json!({"value": im.align}));
+                self.c("para.lineSpacing", json!({"value": 1.0}));
+                self.c("para.spacing", json!({"before": r1(im.before), "after": 0}));
+                self.c("para.indents", json!({"left": 0, "right": 0, "firstLine": 0}));
+                self.c("para.borders", json!({"kind": "none"}));
+                self.c("insert.picture", json!({"path": im.src, "width": r2(im.w)}));
+                self.c("text.newParagraph", json!({}));
+                self.c("para.pageBreakBefore", json!({"value": false}));
+                self.blk += 1;
+                self.prev_table = false;
+            }
             Block::Break => {}
         }
     }
@@ -318,6 +333,14 @@ impl Hwpx {
                     "spacingBefore": (t.before * HU * SPACE_X).round() as i64, "spacingAfter": 0, "pageBreakBefore": page_break,
                     "marginLeft": 0, "indent": 0, "alignment": "left", "lineSpacingType": "Percent", "lineSpacing": 100}}));
                 self.table(t);
+            }
+            Block::Image(im) => {
+                self.c("format.para", json!({"section": 0, "para": self.cur, "props": {
+                    "spacingBefore": (im.before * HU * SPACE_X).round() as i64, "spacingAfter": 0, "pageBreakBefore": page_break,
+                    "marginLeft": 0, "indent": 0, "alignment": im.align, "lineSpacingType": "Percent", "lineSpacing": 100}}));
+                // picture.inline 이 그림 뒤에 새 문단을 연다
+                self.c("picture.inline", json!({"section": 0, "para": self.cur, "path": im.src, "w": im.w, "h": im.h}));
+                self.cur += 1;
             }
             Block::Break => {}
         }

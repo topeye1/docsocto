@@ -70,10 +70,24 @@ pub struct Table {
     pub before: f64,
 }
 
+/// 그림(<img>) — 글자처럼 한 문단에 하나
+#[derive(Clone, Debug)]
+pub struct Image {
+    /// Edge 가 읽은 주소(currentSrc) — mod.rs 가 파일 경로로 바꾼다
+    pub src: String,
+    pub w: f64,
+    pub h: f64,
+    pub align: &'static str,
+    pub top: f64,
+    pub bottom: f64,
+    pub before: f64,
+}
+
 #[derive(Clone, Debug)]
 pub enum Block {
     Para(Para),
     Table(Table),
+    Image(Image),
     Break,
 }
 
@@ -284,6 +298,19 @@ pub fn flow(n: &Value, nested: bool, rep: &mut Report) -> Vec<Block> {
                 }
             }
             "br" => cur.push(("\n".into(), None)),
+            "img" if !nested && k.get("src").and_then(Value::as_str).is_some() => {
+                flush(&mut cur, &mut out);
+                let b = bx(k);
+                out.push(Block::Image(Image {
+                    src: k["src"].as_str().unwrap_or("").to_string(),
+                    w: b.w * PX,
+                    h: b.h * PX,
+                    align: align_of(n),
+                    top: b.y,
+                    bottom: b.y + b.h,
+                    before: 0.0,
+                }));
+            }
             t if MEDIA.contains(&t) => rep.skip(t),
             _ if is_inline(k) => {
                 let r = runs_of(k, bg(k), rep);
@@ -558,6 +585,7 @@ pub fn spacing(blocks: &mut [Block]) {
             }
             Block::Para(p) => (p.top, p.bottom, &mut p.before),
             Block::Table(t) => (t.top, t.bottom, &mut t.before),
+            Block::Image(i) => (i.top, i.bottom, &mut i.before),
         };
         *before = prev.map_or(0.0, |pv| ((top - pv) * PX).max(0.0));
         prev = Some(bottom);

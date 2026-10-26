@@ -37,6 +37,8 @@ fn tools() -> Value {
              json!({"path": {"type": "string"}}), &["path"]),
         tool("inspect", "파일을 열어 문서 정보·표 목록·본문 글자를 돌려준다(고치지 않음).",
              json!({"path": {"type": "string"}}), &["path"]),
+        tool("convert", "요청형 변환: HTML 을 docx·hwpx 로 만든다(Edge 가 그린 결과 기준). mode: auto(기본)|flow(여러 쪽 본문)|fixed(한 쪽 표지형). 돌려받은 보고서에 바꿔 그린 것·옮기지 못한 것이 적힌다.",
+             json!({"source": {"type": "string"}, "output": {"type": "string"}, "mode": {"type": "string"}, "overwrite": {"type": "boolean"}}), &["source", "output"]),
     ])
 }
 
@@ -87,6 +89,14 @@ impl Server {
             "close" => {
                 self.docs.remove(&s("handle")?);
                 Ok(json!({"ok": true}))
+            }
+            "convert" => {
+                let out = s("output")?;
+                if std::path::Path::new(&out).exists() && !a.get("overwrite").and_then(Value::as_bool).unwrap_or(false) {
+                    return Err(crate::i18n::t("exists"));
+                }
+                let mode = crate::convert::Mode::parse(a.get("mode").and_then(Value::as_str).unwrap_or("auto"))?;
+                crate::convert::convert(&s("source")?, &out, mode)
             }
             "read_reference" => crate::read::read(&s("path")?),
             "inspect" => {
