@@ -213,6 +213,16 @@ impl Reader<'_> {
                     _ => {}
                 }
             }
+            // 한글은 칸의 마지막 줄 아래에 줄 간격 여유를 두지 않는데 Word 고정 줄 간격은 둔다 — 글이 행 높이를 정하는 칸이
+            // 줄마다 길어져 표가 쪽을 넘었다(02 사업계획서 실무자 칸, 34 → 30쪽). 마지막 문단이 한 줄이면 글자 크기의 1.25배로.
+            let inner = pt(c.width as i64) - pt(pad.left as i64) - pt(pad.right as i64);
+            if let Some(last) = paras.last_mut() {
+                let w: f64 = last.runs.iter().filter_map(|(t, s)| s.as_ref().map(|s| t.chars().map(|ch| if (ch as u32) < 0x2E80 { s.size * 0.55 } else { s.size }).sum::<f64>())).sum();
+                let one_line = !last.runs.iter().any(|(_, s)| s.is_none()) && w <= inner - last.pad_left - last.indent_right - last.first_line.max(0.0);
+                if one_line && !last.line_min && last.line.is_some_and(|l| l > last.size * 1.25) {
+                    last.line = Some(last.size * 1.25);
+                }
+            }
             cells.push(Cell {
                 paras,
                 bg,
