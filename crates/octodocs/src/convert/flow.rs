@@ -112,6 +112,8 @@ pub struct Cell {
     pub h: f64,
     /// 이 칸만의 테두리 면(면 이름, (색, pt))
     pub lines: Vec<(&'static str, (String, f64))>,
+    /// 칸 안의 표 — (앞에 오는 문단 수, 표). docx 로만 옮긴다.
+    pub tables: Vec<(usize, Table)>,
 }
 
 #[derive(Clone, Debug)]
@@ -479,6 +481,7 @@ fn cell_of(n: &Value, fill: Option<String>, rep: &mut Report) -> Cell {
         span: (rs, cs),
         h: bx(n).h * PX,
         lines: Vec::new(),
+        tables: Vec::new(),
     }
 }
 

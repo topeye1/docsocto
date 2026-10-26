@@ -199,6 +199,7 @@ impl Reader<'_> {
                     span: (rows_spanned, span),
                     h: if rows_spanned == 1 { est.max(row_h) } else { 0.0 },
                     lines,
+                    tables: Vec::new(),
                 });
                 g += span;
             }

@@ -143,8 +143,18 @@ fn cell_borders(t: &Table, cl: &Cell) -> Borders {
 }
 
 fn cell_blocks(cl: &Cell) -> Vec<Arc<WBlock>> {
-    let mut v: Vec<Arc<WBlock>> = cl.paras.iter().map(|p| Arc::new(WBlock::Para(paragraph(p, false)))).collect();
-    if v.is_empty() {
+    let mut v: Vec<Arc<WBlock>> = Vec::new();
+    for (i, p) in cl.paras.iter().enumerate() {
+        for (_, t) in cl.tables.iter().filter(|(k, _)| *k == i) {
+            v.push(Arc::new(WBlock::Table(table(t))));
+        }
+        v.push(Arc::new(WBlock::Para(paragraph(p, false))));
+    }
+    for (_, t) in cl.tables.iter().filter(|(k, _)| *k >= cl.paras.len()) {
+        v.push(Arc::new(WBlock::Table(table(t))));
+    }
+    // 칸은 문단으로 끝나야 한다
+    if !matches!(v.last().map(|b| &**b), Some(WBlock::Para(_))) {
         v.push(Arc::new(WBlock::Para(Paragraph::new())));
     }
     v

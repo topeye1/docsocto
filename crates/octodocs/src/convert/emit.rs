@@ -388,6 +388,7 @@ impl Hwpx {
             span: (1, 1),
             h: (p.bottom - p.top) * super::css::PX,
             lines: vec![("left", (col, w))],
+            tables: Vec::new(),
         };
         Table { rows: 1, cols: 1, widths: vec![None], cells: vec![cell], border: None, inner: false, top: p.top, bottom: p.bottom, before: p.before }
     }

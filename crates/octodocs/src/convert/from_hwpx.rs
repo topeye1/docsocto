@@ -205,8 +205,14 @@ impl Reader<'_> {
                 }
             }
             let pad = if c.apply_inner_margin { &c.padding } else { &t.padding };
-            let paras = self.paras(&c.paragraphs, true);
-            let paras = paras.into_iter().filter_map(|b| if let Block::Para(p) = b { Some(p) } else { None }).collect();
+            let (mut paras, mut tables) = (Vec::new(), Vec::new());
+            for b in self.paras(&c.paragraphs, true) {
+                match b {
+                    Block::Para(p) => paras.push(p),
+                    Block::Table(t) => tables.push((paras.len(), t)),
+                    _ => {}
+                }
+            }
             cells.push(Cell {
                 paras,
                 bg,
@@ -220,6 +226,7 @@ impl Reader<'_> {
                 span: (c.row_span.max(1) as usize, c.col_span.max(1) as usize),
                 h: pt(c.height as i64),
                 lines,
+                tables,
             });
         }
         // 한글 표는 행마다 칸 경계가 달라도 된다 — 열 번호가 같아도 폭이 달랐고, 가장 좁은 폭을 열 너비로 쓰면
@@ -281,8 +288,8 @@ impl Reader<'_> {
             }
             for c in p.controls.iter() {
                 match c {
-                    Control::Table(t) if !in_cell => out.push(Block::Table(self.table(t))),
-                    Control::Table(_) => self.rep.note("nested_table", "칸 안의 표 — 옮기지 않음"),
+                    // 칸 안의 표도 표로(docx 는 칸 안에 표를 둔다) — 큰 테두리 상자 안의 제목 띠·흐름표가 빠졌다(08 사업계획서)
+                    Control::Table(t) => out.push(Block::Table(self.table(t))),
                     Control::Picture(pic) if !in_cell => match self.picture(pic, para.align) {
                         Some(im) => out.push(Block::Image(im)),
                         None => self.rep.skip("그림(읽지 못한 형식)"),
