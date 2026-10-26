@@ -61,6 +61,20 @@ def sides(n):
     return out
 
 
+def text_frame(n, b, t, slack):
+    """글상자 가로 자리(px): 정렬에 맞춰 Edge가 그린 글의 기준선(왼끝·가운데·오른끝)을 지키고 남는 폭은 그 반대쪽으로 준다.
+    가운데 정렬은 Edge 글줄의 가운데를 상자 가운데로 둬서, 글꼴 폭이 달라도 가운데가 어긋나지 않는다."""
+    st = n["style"]
+    pl, pr = px(st.get("padding-left")), px(st.get("padding-right"))
+    w = max(b["w"] - pl - pr, t["w"]) * slack
+    align = st.get("text-align")
+    if align == "center":
+        return t["x"] + t["w"] / 2 - w / 2, w, "center"
+    if align in ("right", "end"):
+        return t["x"] + t["w"] - w, w, "right"
+    return t["x"], w, "left"
+
+
 def text_bounds(n):
     """블록이 바로 품은 글줄들의 바깥 상자(px)"""
     xs = [l["box"] for k in n["kids"] if k["tag"] == "#text" for l in k["lines"]]
@@ -159,9 +173,8 @@ class Gen:
         self.c("caret.set", pos={"story": "body", "path": [0], "off": 0})
         t = text_bounds(n) or b
         pl, pr = px(st.get("padding-left")), px(st.get("padding-right"))
-        cw = max(b["w"] - pl - pr, t["w"])  # 글이 차지할 수 있는 폭(안쪽 여백 뺀 상자 폭)
-        cx = b["x"] + pl if st.get("text-align") in ("center", "right", "end") else t["x"]
-        self.c("insert.textBox", text="", width=cw * PX * 1.10 + 2 * INSET_X, height=t["h"] * PX * 1.3 + 2 * INSET_Y)
+        fx, fw, _ = text_frame(n, b, t, 1.10)
+        self.c("insert.textBox", text="", width=fw * PX + 2 * INSET_X, height=t["h"] * PX * 1.3 + 2 * INSET_Y)
         align = {"center": "center", "right": "right", "end": "right"}.get(st.get("text-align"), "left")
         if align != "left":
             self.c("para.align", value=align)
@@ -182,7 +195,7 @@ class Gen:
             self.c("text.insert", text=text)
         self.select_last()
         self.c("arrange.wrap", wrap="inFrontOfText")
-        self.c("arrange.position", x=cx * PX - INSET_X, y=t["y"] * PX - INSET_Y)
+        self.c("arrange.position", x=fx * PX - INSET_X, y=t["y"] * PX - INSET_Y)
         self.c("shape.fill", color=None)
         self.c("shape.outline", color=None)
 

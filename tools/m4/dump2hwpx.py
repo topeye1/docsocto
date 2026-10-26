@@ -4,7 +4,7 @@
 import json, sys, os
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from dump2docx import PX, rgba, gradient, px, decorated, sides, text_bounds, runs_of, is_block  # noqa: E402
+from dump2docx import PX, rgba, gradient, px, decorated, sides, text_bounds, text_frame, runs_of, is_block  # noqa: E402
 
 FONT = "맑은 고딕"
 OUT_DIR = None  # 그러데이션 그림을 둘 폴더(main 에서 정함)
@@ -119,9 +119,8 @@ class Gen:
         st, b = n["style"], n["box"]
         t = text_bounds(n) or b
         pl, pr = px(st.get("padding-left")), px(st.get("padding-right"))
-        cw = max(b["w"] - pl - pr, t["w"])
-        cx = b["x"] + pl if st.get("text-align") in ("center", "right", "end") else t["x"]
-        self.c("shape.add", kind="textbox", x=cx * PX, y=t["y"] * PX, w=cw * PX * 1.08, h=t["h"] * PX * 1.3,
+        fx, fw, _ = text_frame(n, b, t, 1.10)
+        self.c("shape.add", kind="textbox", x=fx * PX, y=t["y"] * PX, w=fw * PX, h=t["h"] * PX * 1.3,
                wrap="InFrontOfText", line=None, fill=None, margin=[0, 0, 0, 0])
         para = {"alignment": {"center": "center", "right": "right", "end": "right"}.get(st.get("text-align"), "left")}
         lh = st.get("line-height")
