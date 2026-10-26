@@ -67,6 +67,9 @@ const COMMANDS: &[CommandInfo] = &[
     CommandInfo { id: "doc.pageCount", ko: "쪽 수", en: "Page count", params: "" },
     CommandInfo { id: "layout.cells", ko: "표 칸 배치", en: "Table cell boxes", params: "table" },
     CommandInfo { id: "layout.overflows", ko: "쪽 아래 넘침", en: "Page-bottom overflows", params: "" },
+    CommandInfo { id: "shape.add", ko: "도형 넣기", en: "Add shape", params: "kind(rectangle|textbox|line|ellipse),x,y,w,h(pt, 쪽 기준),wrap?,fill?{color,alpha}|{gradient{angle,stops[{pos,color,alpha}]}},line?{color,width}|null,round?,margin?[l,t,r,b]" },
+    CommandInfo { id: "picture.add", ko: "그림 넣기", en: "Add picture", params: "path,x,y,w,h(pt, 쪽 기준),wrap?(BehindText|InFrontOfText)" },
+    CommandInfo { id: "shape.text", ko: "글상자 글", en: "Text box text", params: "control,text(\\n=새 문단),props?{fontSize,textColor,bold,fontName…},paraProps?{alignment,lineSpacing…}" },
     CommandInfo { id: "doc.text", ko: "본문 글자", en: "Body text", params: "section?" },
     CommandInfo { id: "text.find", ko: "찾기", en: "Find text", params: "find" },
     CommandInfo { id: "table.getRow", ko: "행 읽기", en: "Get row", params: "table,row" },
@@ -136,6 +139,8 @@ pub fn commands() -> &'static [CommandInfo] {
 pub struct Session {
     original: Vec<u8>,
     doc: HwpDocument,
+    /// 마지막으로 넣은 도형(구역, 문단, 컨트롤) — shape.text 가 control 없이 오면 여기에 쓴다
+    last_shape: Option<(usize, usize, usize)>,
 }
 
 fn us(p: &Value, k: &str) -> Result<usize, String> {
@@ -153,6 +158,23 @@ fn props(p: &Value) -> String {
 fn engine<T: std::fmt::Debug>(e: T) -> String {
     format!("엔진 오류: {e:?}")
 }
+/// 글상자 문단별 글자 수
+fn textbox_lens(doc: &HwpDocument, sec: usize, para: usize, ctrl: usize) -> Result<Vec<usize>, String> {
+    match doc.document().sections.get(sec).and_then(|s| s.paragraphs.get(para)).and_then(|q| q.controls.get(ctrl)) {
+        Some(Control::Shape(s)) => Ok(s
+            .drawing()
+            .and_then(|d| d.text_box.as_ref())
+            .map(|tb| tb.paragraphs.iter().map(|q| q.text.chars().count()).collect())
+            .unwrap_or_default()),
+        _ => Err("글상자를 찾지 못했습니다".into()),
+    }
+}
+
+/// "RRGGBB" → HWP 색(0x00BBGGRR)
+fn bgr(hex: &str) -> u32 {
+    let v = u32::from_str_radix(hex.trim_start_matches('#'), 16).unwrap_or(0);
+    ((v & 0xFF) << 16) | (v & 0xFF00) | ((v >> 16) & 0xFF)
+}
 fn parsed(s: String) -> Value {
     serde_json::from_str(&s).unwrap_or(Value::String(s))
 }
@@ -168,7 +190,7 @@ struct TableAt {
 impl Session {
     pub fn open(data: Vec<u8>) -> Result<Self, String> {
         let doc = open(&data)?;
-        Ok(Session { original: data, doc })
+        Ok(Session { original: data, doc, last_shape: None })
     }
 
     /// 열 때 받은 원본 바이트
@@ -176,6 +198,47 @@ impl Session {
         &self.original
     }
 
+    /// 도형 채우기: {color,alpha} 단색, {gradient{angle,stops[{pos,color,alpha}]}} 그러데이션, null 없음
+    fn set_fill(&mut self, sec: usize, para: usize, ctrl: usize, f: &Value) -> Result<(), String> {
+        use rhwp::model::style::{FillType, GradientFill, SolidFill};
+        let doc = self.doc.document_mut();
+        let shape = match doc.sections.get_mut(sec).and_then(|s| s.paragraphs.get_mut(para)).and_then(|q| q.controls.get_mut(ctrl)) {
+            Some(Control::Shape(s)) => s,
+            _ => return Err("도형을 찾지 못했습니다".into()),
+        };
+        let d = shape.drawing_mut().ok_or("채우기를 줄 수 없는 도형입니다")?;
+        // HWP 의 채우기 alpha 는 투명도다(0=불투명, 255=완전 투명) — CSS 불투명도를 뒤집어 넣는다
+        let alpha = |a: Option<f64>| ((1.0 - a.unwrap_or(1.0).clamp(0.0, 1.0)) * 255.0).round() as u8;
+        if f.is_null() {
+            d.fill.fill_type = FillType::None;
+            d.fill.solid = None;
+            d.fill.gradient = None;
+        } else if let Some(g) = f.get("gradient") {
+            let stops = g["stops"].as_array().cloned().unwrap_or_default();
+            d.fill.fill_type = FillType::Gradient;
+            d.fill.solid = None;
+            d.fill.gradient = Some(GradientFill {
+                gradient_type: 1,
+                angle: g["angle"].as_f64().unwrap_or(0.0).round() as i16,
+                center_x: 0,
+                center_y: 0,
+                blur: 100, // 번짐 정도(단계 수) — 한글 기본값(0이면 단계 없음, 255는 줄무늬가 보임)
+                step_center: 50,
+                colors: stops.iter().map(|s| bgr(s["color"].as_str().unwrap_or("000000"))).collect(),
+                positions: stops.iter().map(|s| s["pos"].as_f64().unwrap_or(0.0).round() as i32).collect(),
+            });
+            d.fill.alpha = alpha(stops.first().and_then(|s| s["alpha"].as_f64()));
+        } else {
+            d.fill.fill_type = FillType::Solid;
+            d.fill.gradient = None;
+            d.fill.solid = Some(SolidFill { background_color: bgr(f["color"].as_str().unwrap_or("FFFFFF")), pattern_color: 0, pattern_type: -1 });
+            d.fill.alpha = alpha(f["alpha"].as_f64());
+        }
+        // 직접 고친 채우기를 조판에 반영 — 같은 불투명도를 속성 명령으로 다시 넣어 다시 그리게 한다
+        let a = d.fill.alpha;
+        self.doc.set_shape_properties_native(sec, para, ctrl, &json!({"fillAlpha": a}).to_string()).map_err(engine)?;
+        Ok(())
+    }
     fn table(&self, no: usize) -> Result<TableAt, String> {
         let grids = extract_tables(self.doc.document());
         let top: Vec<_> = grids.iter().filter(|g| g.container_path.is_empty()).collect();
@@ -507,7 +570,130 @@ impl Session {
                 }
                 json!({ "overflows": out })
             }
-            "doc.text" => {
+            "shape.add" => {
+                // 쪽(Paper) 기준 자리에 도형을 띄운다 — M4 HTML 변환(결정 #33)
+                let (sec, para) = (us_or(p, "section", 0), us_or(p, "para", 0));
+                let hu = |k: &str| -> Result<u32, String> {
+                    let v = p.get(k).and_then(Value::as_f64).ok_or_else(|| format!("매개변수 '{k}'(pt)가 필요합니다"))?;
+                    Ok((v * 100.0).round().max(0.0) as u32)
+                };
+                let kind = st(p, "kind")?;
+                let wrap = p.get("wrap").and_then(Value::as_str).unwrap_or("InFrontOfText");
+                // 매번 문단 끝에 붙인다 — 0번 자리에 거듭 끼우면 한글에서 개체마다 자리·크기가 뒤섞였다(M4 표지 실측)
+                let end = self.doc.document().sections.get(sec).and_then(|s| s.paragraphs.get(para)).map(|q| q.text.chars().count()).unwrap_or(0);
+                let r = parsed(
+                    self.doc
+                        .create_shape_control_native(sec, para, end, hu("w")?.max(1), hu("h")?.max(1), hu("x")?, hu("y")?, false, wrap, kind, false, false, &[])
+                        .map_err(engine)?,
+                );
+                let ctrl = r["controlIdx"].as_u64().ok_or("도형 번호를 받지 못했습니다")? as usize;
+                let pi = r["paraIdx"].as_u64().map(|v| v as usize).unwrap_or(para);
+                let mut props = serde_json::Map::new();
+                if let Some(v) = p.get("round").and_then(Value::as_i64) {
+                    props.insert("roundRate".into(), json!(v));
+                }
+                if let Some(m) = p.get("margin").and_then(Value::as_array) {
+                    for (k, v) in ["tbMarginLeft", "tbMarginTop", "tbMarginRight", "tbMarginBottom"].iter().zip(m) {
+                        props.insert((*k).into(), json!((v.as_f64().unwrap_or(0.0) * 100.0).round() as i64));
+                    }
+                }
+                match p.get("line") {
+                    Some(Value::Null) => {
+                        props.insert("lineType".into(), json!(0));
+                        props.insert("borderWidth".into(), json!(0));
+                    }
+                    Some(l) => {
+                        props.insert("borderColor".into(), json!(bgr(l["color"].as_str().unwrap_or("000000"))));
+                        props.insert("borderWidth".into(), json!((l["width"].as_f64().unwrap_or(0.75) * 100.0).round() as i64));
+                    }
+                    None => {}
+                }
+                if !props.is_empty() {
+                    self.doc.set_shape_properties_native(sec, pi, ctrl, &Value::Object(props).to_string()).map_err(engine)?;
+                }
+                // 겹침 허용 — 한글은 겹침 금지 개체를 서로 비키게 옮긴다(배경 위에 글상자를 얹어야 한다)
+                if let Some(Control::Shape(s)) =
+                    self.doc.document_mut().sections.get_mut(sec).and_then(|x| x.paragraphs.get_mut(pi)).and_then(|q| q.controls.get_mut(ctrl))
+                {
+                    s.common_mut().allow_overlap = true;
+                }
+                match p.get("fill") {
+                    Some(f) => self.set_fill(sec, pi, ctrl, f)?,
+                    None => {
+                        self.doc.set_shape_properties_native(sec, pi, ctrl, "{}").map_err(engine)?;
+                    }
+                }
+                self.last_shape = Some((sec, pi, ctrl));
+                json!({ "section": sec, "para": pi, "control": ctrl })
+            }
+            "picture.add" => {
+                // 쪽(Paper) 기준 그림 — 한글이 그대로 못 그리는 장식(그러데이션 등)을 그림으로 넣는다(M4)
+                let (sec, para) = (us_or(p, "section", 0), us_or(p, "para", 0));
+                let path = st(p, "path")?;
+                let data = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
+                let hu = |k: &str| -> Result<u32, String> {
+                    let v = p.get(k).and_then(Value::as_f64).ok_or_else(|| format!("매개변수 '{k}'(pt)가 필요합니다"))?;
+                    Ok((v * 100.0).round().max(0.0) as u32)
+                };
+                let ext = std::path::Path::new(path).extension().and_then(|e| e.to_str()).unwrap_or("png").to_lowercase();
+                let (w, h) = (hu("w")?.max(1), hu("h")?.max(1));
+                let end = self.doc.document().sections.get(sec).and_then(|s| s.paragraphs.get(para)).map(|q| q.text.chars().count()).unwrap_or(0);
+                let r = parsed(
+                    self.doc
+                        .insert_picture_native(sec, para, end, &[], &data, w, h, w / 75 * 1 + 1, h / 75 * 1 + 1, &ext, "", Some(hu("x")? as i32), Some(hu("y")? as i32))
+                        .map_err(engine)?,
+                );
+                let ctrl = r["controlIdx"].as_u64().ok_or("그림 번호를 받지 못했습니다")? as usize;
+                let pi = r["paraIdx"].as_u64().map(|v| v as usize).unwrap_or(para);
+                let wrap = p.get("wrap").and_then(Value::as_str).unwrap_or("BehindText");
+                if let Some(Control::Picture(pic)) =
+                    self.doc.document_mut().sections.get_mut(sec).and_then(|x| x.paragraphs.get_mut(pi)).and_then(|q| q.controls.get_mut(ctrl))
+                {
+                    pic.common.allow_overlap = true;
+                    pic.common.text_wrap = match wrap {
+                        "InFrontOfText" => rhwp::model::shape::TextWrap::InFrontOfText,
+                        _ => rhwp::model::shape::TextWrap::BehindText,
+                    };
+                }
+                json!({ "section": sec, "para": pi, "control": ctrl })
+            }            "shape.text" => {
+                // 글상자 끝에 글을 붙인다. \n 은 새 문단. 붙인 글자에 글자 모양(props), 그 문단에 문단 모양(paraProps).
+                let (sec, para, ctrl) = match p.get("control").and_then(Value::as_u64) {
+                    Some(c) => (us_or(p, "section", 0), us_or(p, "para", 0), c as usize),
+                    None => self.last_shape.ok_or("넣은 도형이 없습니다(control 을 주십시오)")?,
+                };
+                let text = st(p, "text")?.to_string();
+                // 글꼴 이름은 글꼴 번호로 바꿔 넣는다(없으면 문서 글꼴 목록에 더함)
+                let mut cprops = p.get("props").cloned();
+                if let Some(Value::Object(m)) = cprops.as_mut() {
+                    if let Some(name) = m.remove("fontName").and_then(|v| v.as_str().map(str::to_string)) {
+                        let id = self.doc.find_or_create_font_id_native(&name);
+                        if id >= 0 {
+                            m.insert("fontId".into(), json!(id));
+                        }
+                    }
+                }
+                for (i, piece) in text.split('\n').enumerate() {
+                    let lens = textbox_lens(&self.doc, sec, para, ctrl)?;
+                    let (mut cp, mut off) = (lens.len().saturating_sub(1), *lens.last().unwrap_or(&0));
+                    if i > 0 {
+                        self.doc.split_paragraph_in_cell_native(sec, para, ctrl, 0, cp, off, None).map_err(engine)?;
+                        cp += 1;
+                        off = 0;
+                    }
+                    if !piece.is_empty() {
+                        self.doc.insert_text_in_cell_native(sec, para, ctrl, 0, cp, off, piece).map_err(engine)?;
+                        if let Some(cs) = cprops.as_ref() {
+                            let end = off + piece.chars().count();
+                            self.doc.apply_char_format_in_cell_native(sec, para, ctrl, 0, cp, off, end, &cs.to_string()).map_err(engine)?;
+                        }
+                    }
+                    if let Some(ps) = p.get("paraProps") {
+                        self.doc.apply_para_format_in_cell_native(sec, para, ctrl, 0, cp, &ps.to_string()).map_err(engine)?;
+                    }
+                }
+                json!({ "ok": true })
+            }            "doc.text" => {
                 let doc = self.doc.document();
                 let only = p.get("section").and_then(Value::as_u64).map(|v| v as usize);
                 let mut out = Vec::new();
