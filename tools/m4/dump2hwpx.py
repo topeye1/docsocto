@@ -29,7 +29,8 @@ def grad_color_at(g, frac):
 def gradient_png(g, w_pt, h_pt, name):
     """한글은 그러데이션을 띠로 그려 PDF에 가는 줄이 남는다 — 그림으로 바꿔 넣는다"""
     from PIL import Image
-    W, H = max(1, round(w_pt * 2)), max(1, round(h_pt * 2))
+    # 96dpi 화소 — 한글은 그림을 화소 크기 기준으로 다루므로 쪽 크기와 맞춘다
+    W, H = max(1, round(w_pt * 96 / 72)), max(1, round(h_pt * 96 / 72))
     img = Image.new("RGB", (W, H))
     vertical = abs(((g["angle"]) % 180) - 90) < 45  # Word 각도 90 = 위→아래
     for i in range(H if vertical else W):

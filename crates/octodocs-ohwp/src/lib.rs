@@ -158,6 +158,15 @@ fn props(p: &Value) -> String {
 fn engine<T: std::fmt::Debug>(e: T) -> String {
     format!("엔진 오류: {e:?}")
 }
+/// PNG 화소 크기(IHDR)
+fn png_size(d: &[u8]) -> Option<(u32, u32)> {
+    if d.len() < 24 || &d[1..4] != b"PNG" {
+        return None;
+    }
+    let be = |i: usize| u32::from_be_bytes([d[i], d[i + 1], d[i + 2], d[i + 3]]);
+    Some((be(16), be(20)))
+}
+
 /// 글상자 문단별 글자 수
 fn textbox_lens(doc: &HwpDocument, sec: usize, para: usize, ctrl: usize) -> Result<Vec<usize>, String> {
     match doc.document().sections.get(sec).and_then(|s| s.paragraphs.get(para)).and_then(|q| q.controls.get(ctrl)) {
@@ -637,10 +646,12 @@ impl Session {
                 };
                 let ext = std::path::Path::new(path).extension().and_then(|e| e.to_str()).unwrap_or("png").to_lowercase();
                 let (w, h) = (hu("w")?.max(1), hu("h")?.max(1));
+                // 그림의 실제 화소 크기 — 틀리게 주면 한글이 화소 크기로 그려 쪽보다 크게 나왔다
+                let (nw, nh) = png_size(&data).unwrap_or((w / 75 + 1, h / 75 + 1));
                 let end = self.doc.document().sections.get(sec).and_then(|s| s.paragraphs.get(para)).map(|q| q.text.chars().count()).unwrap_or(0);
                 let r = parsed(
                     self.doc
-                        .insert_picture_native(sec, para, end, &[], &data, w, h, w / 75 * 1 + 1, h / 75 * 1 + 1, &ext, "", Some(hu("x")? as i32), Some(hu("y")? as i32))
+                        .insert_picture_native(sec, para, end, &[], &data, w, h, nw, nh, &ext, "", Some(hu("x")? as i32), Some(hu("y")? as i32))
                         .map_err(engine)?,
                 );
                 let ctrl = r["controlIdx"].as_u64().ok_or("그림 번호를 받지 못했습니다")? as usize;
