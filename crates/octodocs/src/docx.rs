@@ -108,6 +108,10 @@ impl Engine for DocxEngine {
     }
 
     fn run(&mut self, id: &str, p: &Value) -> Result<Value, String> {
+        // 문단 번호 없이 오면 WordCraft 그대로(커서 자리에 쓰기·지금 문단 정렬) — 글상자 안 쓰기 등(M4)
+        if matches!(id, "text.insert" | "para.align" | "format.bold" | "format.italic" | "format.underline") && p.get("para").is_none() {
+            return self.wc(id, p.clone());
+        }
         Ok(match id {
             "doc.info" => json!({
                 "format": "docx",
