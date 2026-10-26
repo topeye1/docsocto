@@ -136,7 +136,8 @@ class Gen:
             s = src["style"]
             col = rgba(s.get("color"))
             props = {"fontName": FONT, "fontSize": int(round(px(s.get("font-size")) * PX * 100)),
-                     "textColor": "#" + (col[0] if col else "000000"), "bold": int(s.get("font-weight", "400")) >= 600}
+                     "textColor": "#" + (col[0] if col else "000000"), "bold": int(s.get("font-weight", "400")) >= 600,
+                     "useFontSpace": True}  # 한글 반각 빈칸 대신 글꼴 빈칸(Edge 와 같은 폭)
             self.c("shape.text", text=pending + text, props=props, paraProps=para)
             pending = ""
 

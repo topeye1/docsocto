@@ -51,7 +51,12 @@ def run_style(n, shade=None):
     s = n["style"]
     col = rgba(s.get("color"))
     return {"size": round(px(s.get("font-size")) * PX * 2) / 2, "bold": int(s.get("font-weight", "400")) >= 600,
-            "italic": s.get("font-style") == "italic", "color": col[0] if col else "000000", "shade": shade}
+            "italic": s.get("font-style") == "italic", "color": col[0] if col else "000000", "shade": shade, "pad": False}
+
+
+def tag_pad(n):
+    """바탕 있는 꼬리표(inline-block)에 좌우 안쪽 여백이 있으면 음영 글자 앞뒤에 빈칸 하나씩 — 꼬리표 폭을 비슷하게"""
+    return bool(bg(n)) and px(n["style"].get("padding-left")) >= 3
 
 
 def runs_of(n, shade=None):
@@ -67,7 +72,10 @@ def runs_of(n, shade=None):
         elif k["tag"] == "br":
             out.append(("\n", None))
         elif is_inline(k):
-            out += runs_of(k, bg(k) or shade)
+            r = runs_of(k, bg(k) or shade)
+            if tag_pad(k):
+                r = [(t, dict(s, pad=True) if s else s) for t, s in r]
+            out += r
     return out
 
 
@@ -135,7 +143,10 @@ def flow(n, nested=False):
         elif k["tag"] == "br":
             cur.append(("\n", None))
         elif is_inline(k):
-            cur.extend(runs_of(k, bg(k)))
+            r = runs_of(k, bg(k))
+            if tag_pad(k):
+                r = [(t, dict(s, pad=True) if s else s) for t, s in r]
+            cur.extend(r)
         else:
             flush()
             out += flow(k, nested)
@@ -220,7 +231,10 @@ def grid(n):
                 if bg(k) and not elems(k):
                     cell["bg"] = fill
                     for p in cell["paras"]:
-                        p["runs"] = [(t, dict(s, shade=bg(k)) if s else s) for t, s in p["runs"]]
+                        p["runs"] = [(t, dict(s, shade=bg(k), pad=tag_pad(k)) if s else s) for t, s in p["runs"]]
+                # flex 줄 가운데에 놓인 조각(align-items:center)은 칸 세로 가운데로
+                if abs(k["box"]["y"] + k["box"]["h"] / 2 - (b["y"] + b["h"] / 2)) < 2 and k["box"]["h"] < b["h"] - 4:
+                    cell["valign"] = "center"
                 cell.update(at=(0, c), span=(1, 1), h=b["h"] * PX)
                 if c == len(ks) - 1 and n["style"].get("display") == "flex" and k["box"]["x"] + k["box"]["w"] > b["x"] + b["w"] - 20:
                     for p in cell["paras"]:
@@ -305,7 +319,7 @@ class Docx:
             self.c("format.bold", value=s["bold"])
             self.c("format.italic", value=s["italic"])
             self.c("format.shading", color=s["shade"])
-            self.c("text.insert", text=t)
+            self.c("text.insert", text=f" {t} " if s["pad"] else t)
 
     def gap(self, pt):
         """표 둘이 붙으면 Word가 한 표로 합친다 — 그 사이 간격을 빈 문단 하나로"""
@@ -408,7 +422,9 @@ class Hwpx:
         self.cmds.append({"command": cmd, "params": p})
 
     def char_props(self, s):
-        p = {"fontName": FONT, "fontSize": int(round(s["size"] * 100)), "textColor": "#" + s["color"], "bold": s["bold"], "italic": s["italic"]}
+        # useFontSpace: 한글은 이것이 꺼져 있으면 빈칸을 글자 크기의 절반으로 그려 Edge·Word보다 줄이 넓어졌다(15pt 빈칸 7.4pt ↔ 5.3pt)
+        p = {"fontName": FONT, "fontSize": int(round(s["size"] * 100)), "textColor": "#" + s["color"], "bold": s["bold"], "italic": s["italic"],
+             "useFontSpace": True}
         if s["shade"]:
             p["shadeColor"] = "#" + s["shade"]
         return p
@@ -440,6 +456,7 @@ class Hwpx:
                     self.cur += 1
                 off = 0
                 for t, s in runs:
+                    t = f" {t} " if s["pad"] else t
                     self.c("text.insert", section=0, para=self.cur, offset=off, text=t)
                     self.c("format.char", section=0, para=self.cur, start=off, end=off + len(t), props=self.char_props(s))
                     off += len(t)
@@ -511,6 +528,7 @@ class Hwpx:
                         self.c("table.cellSplitPara", table=ti, row=r, col=c, para=k - 1, offset=self._len)
                     off = 0
                     for txt, s in runs:
+                        txt = f" {txt} " if s["pad"] else txt
                         self.c("table.cellInsertText", table=ti, row=r, col=c, para=k, offset=off, text=txt)
                         self.c("table.cellCharFormat", table=ti, row=r, col=c, para=k, start=off, end=off + len(txt), props=self.char_props(s))
                         off += len(txt)

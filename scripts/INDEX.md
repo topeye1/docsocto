@@ -30,3 +30,9 @@
 
 ## M3 (tools/m3)
 - tools/m3/form_check.ps1 -Files <양식...> [-Out 폴더] — 양식마다 입력 칸 2개에 짧은 답/긴 답을 채워 form.check 결과(늘어난 행·쪽 수·남은 빈칸·쪽 그림)를 한 줄씩 낸다. 결과 JSON은 <Out>\<이름>.<short|long>.check.json.
+
+## M4 (tools/m4)
+- tools/m4/html_dump.ps1 -Html <원본.html> -Out <덤프.json> [-WidthPx 794] — Edge(headless)가 그린 요소별 최종 스타일·자리, 글줄별 글자·자리를 JSON으로.
+- tools/m4/dump2docx.py·dump2hwpx.py <덤프> <명령.json> — 자리 고정 방식(표지 한 쪽): 꾸민 상자=도형, 글=글상자, 그라데이션=그림.
+- tools/m4/flow.py <덤프> <docx|hwpx> <명령.json> — 흐름 방식(여러 쪽 본문): 문단·표·카드.
+- tools/m4/m4_check.ps1 [-Build] [-Only cover|body] [-Share] — 표지·본문을 docx·HWPX로 변환해 Word·한글 PDF를 Edge 원본과 비교(RESULT 줄).
