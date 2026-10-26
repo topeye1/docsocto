@@ -207,6 +207,15 @@ impl Session {
     }
 
     pub fn run(&mut self, id: &str, p: &Value) -> Result<Value, String> {
+        // 고치는 명령이면 편집 세션으로 알린다. 엔진은 HWPX 편집을 스스로 알아채지 못해, 칸을 채운
+        // 표에서 다른 행이 선언 높이(cellSz) 밑으로 줄어 쪽 수가 한글과 어긋났다(M3-5 융자신청서).
+        const READS: &[&str] = &[
+            "doc.info", "table.list", "table.getCell", "doc.pageCount", "layout.cells", "layout.overflows", "doc.text",
+            "text.find", "table.getRow", "table.getColumn", "table.find", "render.page", "field.list", "field.get",
+        ];
+        if !READS.contains(&id) && !self.doc.document().provenance.session_edited {
+            self.doc.document_mut().provenance.session_edited = true;
+        }
         Ok(match id {
             "doc.info" => {
                 let doc = self.doc.document();
