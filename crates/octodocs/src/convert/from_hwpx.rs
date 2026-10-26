@@ -3,14 +3,15 @@
 
 use std::path::Path;
 
-use octodocs_ohwp::rhwp::model::control::Control;
+use octodocs_ohwp::rhwp::model::control::{AutoNumberType, Control};
 use octodocs_ohwp::rhwp::model::document::Document;
+use octodocs_ohwp::rhwp::model::header_footer::HeaderFooterApply;
 use octodocs_ohwp::rhwp::model::paragraph::{ColumnBreakType, NumberingMarker, Paragraph};
 use octodocs_ohwp::rhwp::model::style::{Alignment, BorderFill, BorderLineType, CharShape, FillType, HeadType, LineSpacingType, UnderlineType};
 use octodocs_ohwp::rhwp::model::table::{Table as HTable, VerticalAlign};
 
 use super::emit::Page;
-use super::flow::{Block, Cell, Image, Para, Run, RunStyle, Table};
+use super::flow::{Block, Cell, Furniture, Image, PageNum, Para, Run, RunStyle, Table};
 use super::Report;
 
 /// HWPUNIT → pt
@@ -34,6 +35,18 @@ struct Reader<'a> {
     tmp: &'a Path,
     rep: &'a mut Report,
     pics: usize,
+    furn: Furniture,
+    /// 지금 읽는 구역의 첫 블록이 전체에서 몇 번째인가
+    base: usize,
+    /// 본문 영역 높이(pt) — 칸 높이의 위 한도
+    body_h: f64,
+    /// 한글에서 지금 쪽의 첫 블록이 전체에서 몇 번째인가(쪽 나눔 뒤, 또는 줄 위치가 쪽 맨 위인 문단)
+    page_top: usize,
+    /// 지금 구역(새 쪽 번호 사이)의 한글 쪽 수 · 그중 쪽 번호를 감춘 쪽 수
+    pages: usize,
+    hides: usize,
+    /// 앞 본문 문단의 마지막 줄 위치(HWPUNIT) — 줄 위치가 0 으로 돌아가면 새 쪽
+    prev_vpos: i32,
 }
 
 impl Reader<'_> {
@@ -249,7 +262,8 @@ impl Reader<'_> {
                 pad: [pt(pad.top as i64), pt(pad.right as i64), pt(pad.bottom as i64), pt(pad.left as i64)],
                 at: (c.row as usize, c.col as usize),
                 span: (c.row_span.max(1) as usize, c.col_span.max(1) as usize),
-                h: pt(c.height as i64),
+                // 쪽을 꽉 채운 칸(목차 상자 692.5pt)은 쪽 나눔 빈 문단과 함께 들어가지 못해 빈 쪽이 생겼다(02 사업계획서) — 본문 높이 − 6pt 로
+                h: pt(c.height as i64).min(self.body_h - 12.0),
                 lines,
                 tables,
             });
@@ -303,6 +317,20 @@ impl Reader<'_> {
         for p in ps {
             if !in_cell && matches!(p.column_type, ColumnBreakType::Page | ColumnBreakType::Section) && !out.is_empty() {
                 out.push(Block::Break);
+                self.page_top = self.base + out.len();
+                self.pages += 1;
+            }
+            // 줄 위치가 앞 문단보다 위(0)로 돌아가면 새 쪽 — 줄 위치가 모두 0 인(조판 정보 없는) 문단은 세지 않는다
+            if !in_cell {
+                let first = p.line_segs.first().map(|l| l.vertical_pos);
+                let new_page = out.is_empty() || (first == Some(0) && self.prev_vpos > 0);
+                if new_page && self.page_top != self.base + out.len() {
+                    self.page_top = self.base + out.len();
+                    self.pages += 1;
+                }
+                if let Some(l) = p.line_segs.last() {
+                    self.prev_vpos = l.vertical_pos;
+                }
             }
             let runs = self.runs(p);
             // 표·그림을 품은 문단의 빈칸은 글로 치지 않는다 — 한글은 그 문단 높이가 표 높이뿐인데 Word 에는 빈칸 줄이
@@ -310,6 +338,29 @@ impl Reader<'_> {
             let has_text = runs.iter().any(|(t, s)| s.is_some() && !t.trim().is_empty());
             let objects: Vec<&Control> = p.controls.iter().filter(|c| matches!(c, Control::Table(_) | Control::Picture(_))).collect();
             let para = self.para(p, runs);
+            if !in_cell {
+                // 쪽 번호 감추기 · 새 쪽 번호 — Word 구역으로(새 번호 자리에서 구역을 나눈다; 쪽 나눔은 구역 나눔이 대신한다)
+                for c in &p.controls {
+                    match c {
+                        Control::PageHide(h) if h.hide_page_num => self.hides += 1,
+                        // 한글은 새 쪽 번호를 그 개체가 있는 쪽 전체에 쓴다 — Word 구역은 그 쪽의 첫 블록에서 연다
+                        // (01 사업계획서는 쪽 가운데 "1-1" 문단에 있어 이어서 구역이 되고 그 쪽 번호가 빠졌다)
+                        Control::NewNumber(n) if matches!(n.number_type, AutoNumberType::Page) => {
+                            let last = self.furn.sections.last().map_or(0, |s| s.0);
+                            let at = self.page_top;
+                            // 앞 구역의 모든 쪽이 번호를 감췄을 때만 구역째 감춘다(한 쪽만 감추는 것은 옮기지 않음 — 08 사업계획서)
+                            let before = self.pages.saturating_sub(1);
+                            let hidden = before > 0 && self.hides >= before;
+                            if at > 0 && at > last {
+                                self.furn.sections.push((at, n.number as u32, hidden, true));
+                            }
+                            self.pages = 1;
+                            self.hides = 0;
+                        }
+                        _ => {}
+                    }
+                }
+            }
             if has_text || objects.is_empty() {
                 out.push(Block::Para(para.clone()));
             }
@@ -323,11 +374,33 @@ impl Reader<'_> {
                     },
                     Control::Picture(_) => self.rep.note("cell_picture", "칸 안의 그림 — 옮기지 않음"),
                     Control::Shape(_) => self.rep.skip("도형·글상자"),
-                    Control::Header(_) => self.rep.skip("머리말"),
-                    Control::Footer(_) => self.rep.skip("꼬리말"),
+                    // 머리말·꼬리말 — 첫 것(양쪽·홀수 쪽)만, 문서 전체에
+                    Control::Header(h) if self.furn.header.is_empty() && !matches!(h.apply_to, HeaderFooterApply::Even) => {
+                        let ps = h.paragraphs.clone();
+                        self.furn.header = self.paras(&ps, true).into_iter().filter_map(|b| if let Block::Para(p) = b { Some(p) } else { None }).collect();
+                    }
+                    Control::Footer(f) if self.furn.footer.is_empty() && !matches!(f.apply_to, HeaderFooterApply::Even) => {
+                        let ps = f.paragraphs.clone();
+                        self.furn.footer = self.paras(&ps, true).into_iter().filter_map(|b| if let Block::Para(p) = b { Some(p) } else { None }).collect();
+                    }
+                    Control::Header(_) => self.rep.note("header_more", "머리말이 여럿 — 첫 것만"),
+                    Control::Footer(_) => self.rep.note("footer_more", "꼬리말이 여럿 — 첫 것만"),
                     Control::Footnote(_) => self.rep.skip("각주"),
                     Control::Endnote(_) => self.rep.skip("미주"),
-                    Control::PageNumberPos(_) => self.rep.skip("쪽 번호"),
+                    // 쪽 번호 자리(표 150): 1~3 위 왼쪽·가운데·오른쪽, 4~6 아래, 7·9 위 바깥·안쪽, 8·10 아래
+                    Control::PageNumberPos(n) if self.furn.page_num.is_none() && n.position != 0 => {
+                        let (top, align) = match n.position {
+                            1 => (true, "left"),
+                            2 => (true, "center"),
+                            3 | 7 | 9 => (true, "right"),
+                            4 => (false, "left"),
+                            6 | 8 | 10 => (false, "right"),
+                            _ => (false, "center"),
+                        };
+                        let deco = [n.dash_char, n.prefix_char].into_iter().find(|c| !c.is_control() && *c != ' ');
+                        self.furn.page_num = Some(PageNum { top, align, deco });
+                    }
+                    Control::PageNumberPos(_) => {}
                     _ => {}
                 }
             }
@@ -337,7 +410,7 @@ impl Reader<'_> {
 }
 
 /// HWPX 바이트 → (쪽 설정, 블록 목록). 그림은 tmp 에 파일로 풀어 둔다.
-pub fn read(data: Vec<u8>, tmp: &Path, rep: &mut Report) -> Result<(Page, Vec<Block>), String> {
+pub fn read(data: Vec<u8>, tmp: &Path, rep: &mut Report) -> Result<(Page, Vec<Block>, Furniture), String> {
     let s = octodocs_ohwp::Session::open(data)?;
     let doc = s.document();
     let sec = doc.sections.first().ok_or("구역이 없습니다")?;
@@ -355,15 +428,28 @@ pub fn read(data: Vec<u8>, tmp: &Path, rep: &mut Report) -> Result<(Page, Vec<Bl
     if doc.sections.len() > 1 {
         rep.note("sections", "구역이 여럿 — 첫 구역의 쪽 설정을 문서 전체에 씀");
     }
-    let mut r = Reader { doc, tmp, rep, pics: 0 };
+    let mut r = Reader { doc, tmp, rep, pics: 0, furn: Furniture::default(), base: 0, body_h: page.h - page.margin[0] - page.margin[2], page_top: 0, pages: 0, hides: 0, prev_vpos: 0 };
     let mut blocks = Vec::new();
     for (i, sec) in doc.sections.iter().enumerate() {
         if i > 0 {
             blocks.push(Block::Break);
         }
+        r.base = blocks.len();
         blocks.extend(r.paras(&sec.paragraphs, false));
     }
-    Ok((page, blocks))
+    let mut furn = r.furn;
+    // 한글: 쪽 끝 → 머리말(위 여백) → 본문(위 여백 + 머리말 여백). Word 머리말 자리는 쪽 끝에서 머리말까지
+    furn.header_dist = Some(pt(pd.margin_top as i64));
+    // 한글 꼬리말(쪽 번호)은 꼬리말 영역 맨 위(본문 바로 아래)에 놓인다 — Word 꼬리말 거리는 쪽 끝 → 꼬리말 글 아래라
+    // (아래 여백 + 꼬리말 여백 − 한 줄)로. 아래 여백만 주면 원본보다 23pt 아래에 찍혔다(01 사업계획서 775 → 798pt)
+    // 머리말·꼬리말의 빈 문단은 버린다 — 꼬리말이 아래 여백보다 커지면 Word 가 본문 영역을 줄여 꽉 찬 쪽이 넘쳤다(03 증빙자료)
+    let blank = |p: &Para| p.runs.iter().all(|(t, _)| t.trim().is_empty());
+    furn.header.retain(|p| !blank(p));
+    furn.footer.retain(|p| !blank(p));
+    let lines = furn.footer.len() + furn.page_num.as_ref().map_or(0, |n| usize::from(!n.top));
+    let line = furn.footer.first().map(|p| p.size).unwrap_or(10.0) * 1.6;
+    furn.footer_dist = Some((pt((pd.margin_bottom + pd.margin_footer) as i64) - line * lines.max(1) as f64).max(pt(pd.margin_bottom as i64)));
+    Ok((page, blocks, furn))
 }
 
 /// 칸들(행, 열, 행 수, 열 수, 폭 pt)의 실제 가로 경계를 모아 촘촘한 열 격자를 만든다.

@@ -99,6 +99,27 @@ impl Para {
     }
 }
 
+/// 머리말·꼬리말·쪽 번호(docx↔HWPX 변환, 7절 판정 항목) — 문서 전체에 하나씩
+#[derive(Clone, Debug, Default)]
+pub struct Furniture {
+    pub header: Vec<Para>,
+    pub footer: Vec<Para>,
+    pub page_num: Option<PageNum>,
+    /// 쪽 끝에서 머리말·꼬리말까지(pt)
+    pub header_dist: Option<f64>,
+    pub footer_dist: Option<f64>,
+    /// 새 쪽 번호로 시작하는 자리: (블록 번호, 새 번호, 그 앞 구역에서 쪽 번호를 감췄나, 그 자리에서 쪽이 나뉘나)
+    pub sections: Vec<(usize, u32, bool, bool)>,
+}
+
+/// 쪽 번호 자리: 위/아래, 정렬, 앞뒤 장식 글자("- 1 -" 의 '-')
+#[derive(Clone, Debug)]
+pub struct PageNum {
+    pub top: bool,
+    pub align: &'static str,
+    pub deco: Option<char>,
+}
+
 #[derive(Clone, Debug)]
 pub struct Cell {
     pub paras: Vec<Para>,

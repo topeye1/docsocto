@@ -6,10 +6,10 @@ use std::sync::Arc;
 use wordcraft_doc::para::{Float, InlineObject, OBJ};
 use wordcraft_doc::props::{Border, BorderStyle, Borders, CellProps, HeightRule, LineSpacing, RowProps, TabAlign, TabLeader, TabStop, TableProps, Underline, VAlign, VMerge};
 use wordcraft_doc::table::{Cell as WCell, Row, Table as WTable};
-use wordcraft_doc::{Align, Block as WBlock, CharProps, Document, ParaProps, Paragraph, Rgb, Run as WRun, TextColor};
+use wordcraft_doc::{Align, Block as WBlock, CharProps, Document, ParaProps, Paragraph, PartKind, Rgb, Run as WRun, TextColor};
 
 use super::emit::{Page, FONT};
-use super::flow::{Block, Cell, Image, Para, RunStyle, Table};
+use super::flow::{Block, Cell, Furniture, Image, PageNum, Para, RunStyle, Table};
 
 fn rgb(h: &str) -> Option<Rgb> {
     Rgb::parse(h)
@@ -296,6 +296,25 @@ fn split_justified(p: &Para) -> Vec<Para> {
 
 /// 블록 목록 → docx 바이트
 pub fn write(blocks: &[Block], page: Page) -> Result<Vec<u8>, String> {
+    write_with(blocks, page, &Furniture::default())
+}
+
+/// 쪽 번호 문단: 장식 글자 + PAGE 필드 + 장식 글자("- 1 -")
+fn page_num_para(n: &PageNum, size: f64) -> Paragraph {
+    let d = n.deco.map(|c| format!("{c} ")).unwrap_or_default();
+    let e = n.deco.map(|c| format!(" {c}")).unwrap_or_default();
+    let mut p = Para::new(vec![(format!("{d}{OBJ}{e}"), Some(RunStyle::plain(size)))]);
+    p.align = n.align;
+    p.size = size;
+    // 줄 높이를 고정 — 문서 기본(맑은 고딕 한 줄)로 두면 꼬리말이 아래 여백을 넘어 Word 가 본문 영역을 줄였다(02 목차 빈 쪽)
+    p.line = Some(size * 1.3);
+    let mut q = paragraph(&p, false);
+    q.objects.push(InlineObject::Field { instr: "PAGE".into(), result: "1".into(), locked: false, dirty: false, code: false, form: String::new() });
+    q
+}
+
+/// 블록 목록 + 머리말·꼬리말·쪽 번호 → docx 바이트
+pub fn write_with(blocks: &[Block], page: Page, furn: &Furniture) -> Result<Vec<u8>, String> {
     let mut doc = Document::new();
     // 한글 기본 탭 간격(40pt)
     doc.settings.default_tab = 40.0;
@@ -307,12 +326,62 @@ pub fn write(blocks: &[Block], page: Page) -> Result<Vec<u8>, String> {
     sp.margin_right = page.margin[1] as f32;
     sp.margin_bottom = page.margin[2] as f32;
     sp.margin_left = page.margin[3] as f32;
-    sp.header = (page.margin[0] / 2.0) as f32;
-    sp.footer = (page.margin[2] / 2.0) as f32;
+    sp.header = furn.header_dist.unwrap_or(page.margin[0] / 2.0) as f32;
+    sp.footer = furn.footer_dist.unwrap_or(page.margin[2] / 2.0) as f32;
+    // 머리말·꼬리말·쪽 번호
+    let num_size = furn.footer.first().or(furn.header.first()).map(|p| p.size).unwrap_or(10.0);
+    let paras = |ps: &[Para]| -> Vec<Arc<WBlock>> { ps.iter().map(|p| Arc::new(WBlock::Para(paragraph(p, false)))).collect() };
+    let (mut head, mut foot) = (paras(&furn.header), paras(&furn.footer));
+    // 쪽 번호를 감춘 구역에 쓸 머리말·꼬리말(번호 없이)
+    let (head_plain, foot_plain) = (head.clone(), foot.clone());
+    if let Some(n) = &furn.page_num {
+        let q = Arc::new(WBlock::Para(page_num_para(n, num_size)));
+        if n.top { head.push(q) } else { foot.push(q) }
+    }
+    let part = |doc: &mut Document, kind: PartKind, v: Vec<Arc<WBlock>>| (!v.is_empty()).then(|| doc.add_part(kind, v));
+    let (head_id, foot_id) = (part(&mut doc, PartKind::Header, head), part(&mut doc, PartKind::Footer, foot));
+    let hidden_ids = if furn.sections.iter().any(|s| s.2) {
+        let h = if furn.page_num.as_ref().is_some_and(|n| n.top) { part(&mut doc, PartKind::Header, head_plain).or(Some(doc.add_part(PartKind::Header, Vec::new()))) } else { head_id };
+        let f = if furn.page_num.as_ref().is_some_and(|n| !n.top) { part(&mut doc, PartKind::Footer, foot_plain).or(Some(doc.add_part(PartKind::Footer, Vec::new()))) } else { foot_id };
+        (h, f)
+    } else {
+        (head_id, foot_id)
+    };
+    // 구역 k 의 쪽 설정: 새 번호 시작 값, 번호 감춤
+    let base = doc.last_section.clone();
+    let section = |k: usize| {
+        let mut sp = base.clone();
+        let hidden = furn.sections.get(k).is_some_and(|s| s.2);
+        let (h, f) = if hidden { hidden_ids } else { (head_id, foot_id) };
+        sp.headers.default = h;
+        sp.footers.default = f;
+        let begin = k.checked_sub(1).and_then(|i| furn.sections.get(i));
+        sp.page_num_start = begin.map(|s| s.1);
+        // 원본에 쪽 나눔이 없던 자리는 이어서(쪽을 새로 열면 쪽이 늘었다, 03 증빙자료 21 → 28쪽)
+        if begin.is_some_and(|s| !s.3) {
+            sp.start = wordcraft_doc::section::SectionStart::Continuous;
+        }
+        sp
+    };
     let mut body: Vec<Arc<WBlock>> = Vec::new();
     let mut brk = false;
     let mut prev_table = false;
-    for bl in blocks {
+    let mut sec = 0usize;
+    for (bi, bl) in blocks.iter().enumerate() {
+        // 한글 새 쪽 번호 자리 — 앞 구역을 닫는다(구역 나눔이 새 쪽을 연다)
+        if furn.sections.get(sec).is_some_and(|s| s.0 == bi) {
+            if !matches!(body.last().map(|b| &**b), Some(WBlock::Para(_))) {
+                body.push(Arc::new(WBlock::Para(Paragraph::new())));
+            }
+            if let Some(WBlock::Para(p)) = body.last().map(|b| (**b).clone()) {
+                let mut p = p;
+                p.section = Some(Box::new(section(sec)));
+                *body.last_mut().unwrap() = Arc::new(WBlock::Para(p));
+            }
+            sec += 1;
+            brk = false;
+            prev_table = false;
+        }
         match bl {
             Block::Break => brk = true,
             Block::Para(p) => {
@@ -330,15 +399,36 @@ pub fn write(blocks: &[Block], page: Page) -> Result<Vec<u8>, String> {
                 prev_table = false;
             }
             Block::Table(t) => {
-                // 쪽 나눔·표 둘이 붙는 곳(Word 가 한 표로 합친다)에는 작은 빈 문단을 둔다
-                if brk || prev_table {
+                // 표 둘이 붙는 곳(Word 가 한 표로 합친다)에는 작은 빈 문단을 둔다
+                if prev_table {
                     let mut gap = Para::new(Vec::new());
                     gap.line = Some(1.0);
                     gap.size = 1.0;
                     body.push(Arc::new(WBlock::Para(paragraph(&gap, brk))));
                     brk = false;
                 }
-                body.push(Arc::new(WBlock::Table(table(t))));
+                let mut wt = table(t);
+                // 쪽 나눔은 표 첫 칸 첫 문단의 "앞에서 쪽 나눔"으로 — 빈 문단을 두면 쪽을 꽉 채운 표(목차 상자)가
+                // 빈 문단과 한 쪽에 들어가지 못해 빈 쪽이 생겼다(02 사업계획서)
+                if brk {
+                    let mut done = false;
+                    if let Some(first) = wt.rows.first_mut().and_then(|r| r.cells.first_mut()).and_then(|c| c.blocks.first_mut()) {
+                        if let WBlock::Para(p) = &**first {
+                            let mut p = p.clone();
+                            p.props.page_break_before = Some(true);
+                            *first = Arc::new(WBlock::Para(p));
+                            done = true;
+                        }
+                    }
+                    if !done {
+                        let mut gap = Para::new(Vec::new());
+                        gap.line = Some(1.0);
+                        gap.size = 1.0;
+                        body.push(Arc::new(WBlock::Para(paragraph(&gap, true))));
+                    }
+                    brk = false;
+                }
+                body.push(Arc::new(WBlock::Table(wt)));
                 prev_table = true;
             }
         }
@@ -347,6 +437,7 @@ pub fn write(blocks: &[Block], page: Page) -> Result<Vec<u8>, String> {
     if prev_table || body.is_empty() {
         body.push(Arc::new(WBlock::Para(Paragraph::new())));
     }
+    doc.last_section = section(sec);
     doc.body = body;
     wordcraft_engine::io::save_bytes("out.docx", &doc)
 }

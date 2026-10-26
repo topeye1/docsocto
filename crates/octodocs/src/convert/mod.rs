@@ -266,8 +266,11 @@ pub fn convert(src: &str, out: &str, mode: Mode) -> Result<Value, String> {
 fn convert_doc(src: &str, ext: &str, out: &str, to: Format, tmp: &Path) -> Result<Value, String> {
     let data = std::fs::read(src).map_err(|e| format!("{src}: {e}"))?;
     let mut rep = Report::default();
-    let (page, blocks) = match ext {
-        "docx" => from_docx::read(src, &data, tmp, &mut rep)?,
+    let (page, blocks, furn) = match ext {
+        "docx" => {
+            let (p, b) = from_docx::read(src, &data, tmp, &mut rep)?;
+            (p, b, flow::Furniture::default())
+        }
         _ => from_hwpx::read(data, tmp, &mut rep)?,
     };
     let from = if ext == "docx" { Format::Docx } else { Format::Hwpx };
@@ -277,7 +280,7 @@ fn convert_doc(src: &str, ext: &str, out: &str, to: Format, tmp: &Path) -> Resul
     let ncmd;
     match to {
         Format::Docx => {
-            let bytes = to_docx::write(&blocks, page)?;
+            let bytes = to_docx::write_with(&blocks, page, &furn)?;
             std::fs::write(out, bytes).map_err(|e| format!("{out}: {e}"))?;
             ncmd = 0;
         }
