@@ -19,6 +19,32 @@ pub struct RunStyle {
     pub shade: Option<String>,
     /// 꼬리표 — 음영 글자 앞뒤에 빈칸 하나씩
     pub pad: bool,
+    pub strike: bool,
+    /// 글꼴 이름(없으면 기본 글꼴) — docx·HWPX 원본은 원래 이름을 그대로 둔다(결정 #13). font 는 한글(동아시아), font_latin 은 영문
+    pub font: Option<String>,
+    pub font_latin: Option<String>,
+    /// 자간(글자 크기의 %, 음수는 좁힘)·장평(%, 100 = 그대로)
+    pub spacing: f64,
+    pub ratio: f64,
+}
+
+impl RunStyle {
+    pub fn plain(size: f64) -> RunStyle {
+        RunStyle {
+            size,
+            bold: false,
+            italic: false,
+            underline: false,
+            color: "000000".into(),
+            shade: None,
+            pad: false,
+            strike: false,
+            font: None,
+            font_latin: None,
+            spacing: 0.0,
+            ratio: 100.0,
+        }
+    }
 }
 
 /// (글자, 서식) — 서식이 None 이면 줄 바꿈
@@ -38,6 +64,39 @@ pub struct Para {
     pub bottom: f64,
     /// 앞 블록과의 간격(pt)
     pub before: f64,
+    /// 뒤 간격(pt)
+    pub after: f64,
+    /// 오른쪽 들여쓰기·첫 줄 들여쓰기(pt, 내어쓰기는 음수)
+    pub indent_right: f64,
+    pub first_line: f64,
+    /// 줄 간격 배수(1.0 = 한 줄) — 고정(line)이 없을 때
+    pub line_mult: Option<f64>,
+    /// line 이 "최소"(atLeast)인가 — 줄 안에 큰 그림이 있을 때
+    pub line_min: bool,
+    /// 탭 자리: (글 영역 왼쪽부터 pt, 0 왼쪽·1 오른쪽·2 가운데·3 소수점, 채움 점선)
+    pub tabs: Vec<(f64, u8, bool)>,
+}
+
+impl Para {
+    pub fn new(runs: Vec<Run>) -> Para {
+        Para {
+            runs,
+            align: "left",
+            line: None,
+            size: 10.0,
+            bar: None,
+            pad_left: 0.0,
+            top: 0.0,
+            bottom: 0.0,
+            before: 0.0,
+            after: 0.0,
+            indent_right: 0.0,
+            first_line: 0.0,
+            line_mult: None,
+            line_min: false,
+            tabs: Vec::new(),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -83,6 +142,50 @@ pub struct Image {
     pub before: f64,
 }
 
+impl Table {
+    /// 칸이 하나도 시작하지 않는 행·열(위·왼쪽 칸의 합침에 통째로 덮인 것)을 접는다 —
+    /// 한글은 칸 없는 행이 든 표를 열지 못했다(docx 의 세로 합침에서 생김). 덮던 칸의 합침 수를 줄인다.
+    pub fn normalize(&mut self) {
+        let mut r = 0;
+        while r < self.rows {
+            if self.rows > 1 && !self.cells.iter().any(|c| c.at.0 == r) {
+                for c in self.cells.iter_mut() {
+                    if c.at.0 < r && r < c.at.0 + c.span.0 {
+                        c.span.0 -= 1;
+                    } else if c.at.0 > r {
+                        c.at.0 -= 1;
+                    }
+                }
+                self.rows -= 1;
+            } else {
+                r += 1;
+            }
+        }
+        let mut c = 0;
+        while c < self.cols {
+            if self.cols > 1 && !self.cells.iter().any(|x| x.at.1 == c) {
+                for x in self.cells.iter_mut() {
+                    if x.at.1 < c && c < x.at.1 + x.span.1 {
+                        x.span.1 -= 1;
+                    } else if x.at.1 > c {
+                        x.at.1 -= 1;
+                    }
+                }
+                // 접힌 열의 너비는 왼쪽 열에 붙인다
+                if c < self.widths.len() {
+                    let w = self.widths.remove(c);
+                    if let (Some(w), Some(Some(prev))) = (w, self.widths.get_mut(c.saturating_sub(1))) {
+                        *prev += w;
+                    }
+                }
+                self.cols -= 1;
+            } else {
+                c += 1;
+            }
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum Block {
     Para(Para),
@@ -122,6 +225,8 @@ fn run_style(n: &Value, shade: Option<String>) -> RunStyle {
         color: rgba(sv(n, "color")).map(|c| c.0).unwrap_or_else(|| "000000".into()),
         shade,
         pad: false,
+        strike: sv(n, "text-decoration-line").contains("line-through"),
+        ..RunStyle::plain(0.0)
     }
 }
 
@@ -256,7 +361,7 @@ fn para(n: &Value, runs: Vec<Run>) -> Para {
         bar,
         top: b.y,
         bottom: b.y + b.h,
-        before: 0.0,
+        ..Para::new(Vec::new())
     }
 }
 

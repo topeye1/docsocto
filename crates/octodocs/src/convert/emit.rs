@@ -85,11 +85,14 @@ impl Docx {
 
     fn para_fmt(&mut self, p: &Para, before: f64, in_cell: bool) {
         self.c("para.align", json!({"value": p.align}));
-        if let Some(l) = p.line {
-            self.c("para.lineSpacing", json!({"exactly": l}));
+        // 새 문단은 앞 문단 모양을 이어받으므로 줄 간격은 늘 정한다
+        match p.line {
+            Some(l) if p.line_min => self.c("para.lineSpacing", json!({"atLeast": l})),
+            Some(l) => self.c("para.lineSpacing", json!({"exactly": l})),
+            None => self.c("para.lineSpacing", json!({"value": p.line_mult.unwrap_or(1.0)})),
         }
-        self.c("para.spacing", json!({"before": r1(before), "after": 0}));
-        self.c("para.indents", json!({"left": p.pad_left, "right": 0, "firstLine": 0}));
+        self.c("para.spacing", json!({"before": r1(before), "after": r1(p.after)}));
+        self.c("para.indents", json!({"left": r2(p.pad_left), "right": r2(p.indent_right), "firstLine": r2(p.first_line)}));
         // 한글·숫자/영문 사이 자동 띄우기 끄기 — Edge 에는 없는 빈칸이 생겼다("8 가지")
         self.c("para.asianTypography", json!({"autoSpaceDE": false, "autoSpaceDN": false}));
         if let Some((col, w)) = &p.bar {
@@ -105,12 +108,14 @@ impl Docx {
                 self.c("text.lineBreak", json!({}));
                 continue;
             };
-            self.c("format.font", json!({"name": FONT, "eastAsia": FONT}));
+            let font = s.font.as_deref().unwrap_or(FONT);
+            self.c("format.font", json!({"name": s.font_latin.as_deref().unwrap_or(font), "eastAsia": font}));
             self.c("format.size", json!({"size": s.size}));
             self.c("format.color", json!({"color": s.color}));
             self.c("format.bold", json!({"value": s.bold}));
             self.c("format.italic", json!({"value": s.italic}));
             self.c("format.underline", json!({"value": s.underline}));
+            self.c("format.strikethrough", json!({"value": s.strike}));
             self.c("format.shading", json!({"color": s.shade}));
             self.c("text.insert", json!({"text": text_of(t, s)}));
         }
@@ -258,10 +263,16 @@ fn hu(v: f64) -> i64 {
 
 pub fn char_props(s: &RunStyle) -> Value {
     // useFontSpace: 꺼져 있으면 한글은 빈칸을 글자 크기의 절반으로 그려 Edge·Word 보다 줄이 넓어졌다
-    let mut p = json!({"fontName": FONT, "fontSize": (s.size * 100.0).round() as i64, "textColor": format!("#{}", s.color),
-        "bold": s.bold, "italic": s.italic, "underline": s.underline, "useFontSpace": true});
+    let mut p = json!({"fontName": s.font.as_deref().unwrap_or(FONT), "fontSize": (s.size * 100.0).round() as i64, "textColor": format!("#{}", s.color),
+        "bold": s.bold, "italic": s.italic, "underline": s.underline, "strikethrough": s.strike, "useFontSpace": true});
     if let Some(sh) = &s.shade {
         p["shadeColor"] = json!(format!("#{sh}"));
+    }
+    if s.spacing != 0.0 {
+        p["spacings"] = json!(vec![s.spacing.round() as i64; 7]);
+    }
+    if (s.ratio - 100.0).abs() > 0.5 {
+        p["ratios"] = json!(vec![s.ratio.round() as i64; 7]);
     }
     p
 }
@@ -292,11 +303,22 @@ impl Hwpx {
     }
 
     fn para_props(p: &Para, before: f64) -> Value {
-        let mut q = json!({"alignment": p.align, "spacingBefore": (before * HU * SPACE_X).round() as i64, "spacingAfter": 0,
-            "marginLeft": hu(p.pad_left), "indent": 0, "autoSpaceKrEn": false, "autoSpaceKrNum": false});
-        if let Some(l) = p.line {
-            q["lineSpacingType"] = json!("Fixed");
-            q["lineSpacing"] = json!((l * HU * FIXED_X).round() as i64);
+        // 문단 여백(hh:margin)은 한글이 엔진 값의 두 배로 그렸다(위 간격 실측) — 같은 묶음이라 모두 절반으로 넣는다
+        let m = |v: f64| (v * HU * SPACE_X).round() as i64;
+        let mut q = json!({"alignment": p.align, "spacingBefore": m(before), "spacingAfter": m(p.after),
+            // Word 내어쓰기(첫 줄 < 0)는 왼쪽 들여쓰기가 이어지는 줄 기준 — 한글은 첫 줄 기준이라 그만큼 뺀다
+            "marginLeft": m(p.pad_left + p.first_line.min(0.0)), "marginRight": m(p.indent_right), "indent": m(p.first_line),
+            "autoSpaceKrEn": false, "autoSpaceKrNum": false});
+        match p.line {
+            Some(l) => {
+                q["lineSpacingType"] = json!(if p.line_min { "Minimum" } else { "Fixed" });
+                // 짝수로 — 엔진이 반으로 나눈 값이 끝수가 나면(2113 → 1056) 한글이 줄 사이를 52.7pt 로 그렸다(02 학위논문 양식 실측)
+                q["lineSpacing"] = json!((l * HU).round() as i64 * FIXED_X as i64);
+            }
+            None => {
+                q["lineSpacingType"] = json!("Percent");
+                q["lineSpacing"] = json!((p.line_mult.unwrap_or(1.0) * 100.0).round() as i64);
+            }
         }
         q
     }
@@ -321,7 +343,12 @@ impl Hwpx {
                         self.c("format.char", json!({"section": 0, "para": self.cur, "start": off, "end": off + n, "props": char_props(s)}));
                         off += n;
                     }
-                    let mut q = Self::para_props(p, if i == 0 { p.before } else { 0.0 });
+                    // 줄 바꿈으로 나눈 이어지는 문단은 첫 줄 들여쓰기 없이(이어지는 줄 자리에서)
+                    let mut cont = p.clone();
+                    if i > 0 {
+                        cont.first_line = 0.0;
+                    }
+                    let mut q = Self::para_props(&cont, if i == 0 { p.before } else { 0.0 });
                     q["pageBreakBefore"] = json!(page_break && i == 0);
                     self.c("format.para", json!({"section": 0, "para": self.cur, "props": q}));
                 }
@@ -366,6 +393,9 @@ impl Hwpx {
     }
 
     fn table(&mut self, t: &Table) {
+        let mut t = t.clone();
+        t.normalize();
+        let t = &t;
         let ti = self.tables;
         self.tables += 1;
         let cur = self.cur;
@@ -418,7 +448,8 @@ impl Hwpx {
                 };
                 for (kk, v) in sides.iter_mut() {
                     if *kk == name {
-                        *v = hwp_line(col, *w);
+                        // 굵기 0·색 없음은 "선 없음"(docx·HWPX 원본의 칸별 테두리)
+                        *v = if *w > 0.0 && !col.is_empty() { hwp_line(col, *w) } else { no_line() };
                     }
                 }
             }

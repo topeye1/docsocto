@@ -9,7 +9,10 @@ pub mod css;
 pub mod emit;
 pub mod fixed;
 pub mod flow;
+pub mod from_docx;
+pub mod from_hwpx;
 pub mod html;
+pub mod to_docx;
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -218,11 +221,17 @@ fn blank(to: Format) -> Result<Vec<u8>, String> {
 pub fn convert(src: &str, out: &str, mode: Mode) -> Result<Value, String> {
     let to = Format::from_path(out).filter(|f| matches!(f, Format::Docx | Format::Hwpx)).ok_or("결과 파일은 .docx 또는 .hwpx 로 주십시오")?;
     let ext = src.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
-    if !matches!(ext.as_str(), "html" | "htm") {
-        return Err(format!("{src}: 지금은 HTML(.html·.htm) 원본만 변환합니다"));
-    }
     let tmp = std::env::temp_dir().join(format!("octodocs_convert_{}", std::process::id()));
     std::fs::create_dir_all(&tmp).map_err(|e| e.to_string())?;
+    if matches!(ext.as_str(), "docx" | "hwpx" | "hwp") {
+        let r = convert_doc(src, &ext, out, to, &tmp);
+        let _ = std::fs::remove_dir_all(&tmp);
+        return r;
+    }
+    if !matches!(ext.as_str(), "html" | "htm") {
+        let _ = std::fs::remove_dir_all(&tmp);
+        return Err(format!("{src}: 변환할 수 있는 원본은 HTML·docx·HWPX(·HWP) 입니다"));
+    }
     let r = (|| {
         let mut plan = plan_html(Path::new(src), to, mode, &tmp)?;
         let source = std::fs::read_to_string(src).unwrap_or_default().to_ascii_lowercase();
@@ -251,6 +260,45 @@ pub fn convert(src: &str, out: &str, mode: Mode) -> Result<Value, String> {
     })();
     let _ = std::fs::remove_dir_all(&tmp);
     r
+}
+
+/// docx ↔ HWPX(·HWP): 원본을 블록으로 읽어 다른 형식으로 쓴다(7절 호환 기준 5)
+fn convert_doc(src: &str, ext: &str, out: &str, to: Format, tmp: &Path) -> Result<Value, String> {
+    let data = std::fs::read(src).map_err(|e| format!("{src}: {e}"))?;
+    let mut rep = Report::default();
+    let (page, blocks) = match ext {
+        "docx" => from_docx::read(src, &data, tmp, &mut rep)?,
+        _ => from_hwpx::read(data, tmp, &mut rep)?,
+    };
+    let from = if ext == "docx" { Format::Docx } else { Format::Hwpx };
+    if from == to {
+        return Err("원본과 결과가 같은 형식입니다 — docx↔HWPX 로만 변환합니다".into());
+    }
+    let ncmd;
+    match to {
+        Format::Docx => {
+            let bytes = to_docx::write(&blocks, page)?;
+            std::fs::write(out, bytes).map_err(|e| format!("{out}: {e}"))?;
+            ncmd = 0;
+        }
+        _ => {
+            let cmds = emit::emit(&blocks, true, page);
+            let mut e = crate::open("new.hwpx", blank(Format::Hwpx)?)?;
+            for (i, (id, p)) in cmds.iter().enumerate() {
+                crate::run(e.as_mut(), id, p).map_err(|err| format!("명령 {i} {id}: {err}"))?;
+            }
+            let (bytes, _) = e.save()?;
+            std::fs::write(out, bytes).map_err(|e| format!("{out}: {e}"))?;
+            ncmd = cmds.len();
+        }
+    }
+    let mut v = rep.to_json();
+    v["source"] = json!(src);
+    v["output"] = json!(out);
+    v["mode"] = json!("document");
+    v["blocks"] = json!(blocks.len());
+    v["commands"] = json!(ncmd);
+    Ok(v)
 }
 
 /// 명령 목록만 JSON(octodocs run --script 형식)으로 — 시험·확인용

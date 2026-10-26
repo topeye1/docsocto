@@ -328,7 +328,7 @@ impl HwpxGen<'_> {
         let lh = sv(n, "line-height");
         if lh.ends_with("px") {
             para["lineSpacingType"] = json!("Fixed");
-            para["lineSpacing"] = json!((px(lh) * PX * 100.0 * FIXED_X).round() as i64);
+            para["lineSpacing"] = json!((px(lh) * PX * 100.0).round() as i64 * FIXED_X as i64); // 짝수로(emit::para_props 참고)
         }
         let mut pending = "";
         for (text, src) in runs {

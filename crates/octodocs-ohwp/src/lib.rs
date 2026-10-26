@@ -227,6 +227,11 @@ impl Session {
         Ok(Session { original: data, doc, last_shape: None })
     }
 
+    /// 문서 모형(읽기 전용) — 형식 변환이 HWPX 를 블록으로 읽을 때 쓴다(M4)
+    pub fn document(&self) -> &rhwp::model::document::Document {
+        self.doc.document()
+    }
+
     /// 열 때 받은 원본 바이트
     pub fn original(&self) -> &[u8] {
         &self.original

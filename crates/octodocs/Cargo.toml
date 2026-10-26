@@ -12,6 +12,9 @@ octodocs-preserve = { path = "../octodocs-preserve" }
 # 진행일지 A2: 로컬 포크를 경로로 참조한다
 wordcraft-engine = { path = "../../../work/wordcraft/crates/engine" }
 wordcraft-doc = { path = "../../../work/wordcraft/crates/doc" }
+wordcraft-fonts = { path = "../../../work/wordcraft/crates/fonts" }
+# 글꼴 OS/2 표(코드 페이지·윈도 높이) — wordcraft 와 같은 판
+skrifa = "0.47"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 encoding_rs = "0.8"
