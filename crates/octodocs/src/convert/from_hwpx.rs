@@ -71,6 +71,21 @@ impl Reader<'_> {
         if let Some(m) = self.marker(p) {
             out.push((format!("{m} "), Some(style_at(p.char_offsets.first().copied().unwrap_or(0)))));
         }
+        // 양식 개체(선택 상자·라디오 단추·입력 상자) — 글자로 문단 앞에(02 사업계획서 "기관형태" 선택지가 빠졌다)
+        for c in &p.controls {
+            if let Control::Form(f) = c {
+                use octodocs_ohwp::rhwp::model::control::FormType;
+                let t = match f.form_type {
+                    FormType::CheckBox => format!("{}{} ", if f.value == 1 { '☑' } else { '☐' }, f.caption),
+                    FormType::RadioButton => format!("{}{} ", if f.value == 1 { '◉' } else { '○' }, f.caption),
+                    FormType::PushButton => format!("{} ", f.caption),
+                    _ => format!("{} ", f.text),
+                };
+                if !t.trim().is_empty() {
+                    out.push((t, Some(style_at(p.char_offsets.first().copied().unwrap_or(0)))));
+                }
+            }
+        }
         for (i, ch) in p.text.chars().enumerate() {
             if ch == '\n' || ch == '\r' {
                 out.push(("\n".into(), None));
