@@ -168,8 +168,15 @@ fn table(t: &Table) -> WTable {
     // Word 는 행 높이에 그 행에서 시작하는 칸들의 가장 큰 위아래 여백을 더해 그렸다(01 사업신청서 22.3 → 28.4pt,
     // 여백을 빼니 22.7pt; 세로로 합친 칸이 그 행에서 시작하면 그 칸의 여백) — 빼서 넣는다
     let mut pad_v = vec![0.0f64; t.rows];
+    let mut line_v = vec![0.0f64; t.rows];
     for cl in t.cells.iter().filter(|cl| cl.at.0 < t.rows) {
         pad_v[cl.at.0] = pad_v[cl.at.0].max(cl.pad[0] + cl.pad[2]);
+        // 위 테두리 두께도 행마다 더해 그렸다(09 사업계획서 추진단 표 52.1 → 52.6pt, 0.375pt 선) — 같이 뺀다
+        let top = cell_borders(t, cl).top.map(|b| if b.style == BorderStyle::None { 0.0 } else { b.width as f64 }).unwrap_or(0.0);
+        line_v[cl.at.0] = line_v[cl.at.0].max(top);
+    }
+    for (p, l) in pad_v.iter_mut().zip(&line_v) {
+        *p += l;
     }
     let mut row_h = vec![0.0f64; t.rows];
     for cl in &t.cells {
