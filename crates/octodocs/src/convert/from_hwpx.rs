@@ -222,6 +222,20 @@ impl Reader<'_> {
                 lines,
             });
         }
+        // 한글 표는 행마다 칸 경계가 달라도 된다 — 열 번호가 같아도 폭이 달랐고, 가장 좁은 폭을 열 너비로 쓰면
+        // Word 에서 칸이 좁아져 글이 접혔다(01 사업계획서 "사업자등록번호" 칸 99.6pt → 96.8pt).
+        // 모든 행의 실제 경계를 모은 촘촘한 격자로 옮긴다.
+        let spec: Vec<_> = t.cells.iter().map(|c| (c.row as usize, c.col as usize, c.row_span.max(1) as usize, c.col_span.max(1) as usize, pt(c.width as i64))).collect();
+        let (cols, widths) = match fine_grid(rows, &spec) {
+            Some((w, place)) => {
+                for (cl, (c0, n)) in cells.iter_mut().zip(place) {
+                    cl.at.1 = c0;
+                    cl.span.1 = n;
+                }
+                (w.len(), w.into_iter().map(Some).collect())
+            }
+            None => (cols, widths),
+        };
         Table { rows, cols, widths, cells, border: None, inner: true, top: 0.0, bottom: 0.0, before: 0.0 }
     }
 
@@ -316,4 +330,62 @@ pub fn read(data: Vec<u8>, tmp: &Path, rep: &mut Report) -> Result<(Page, Vec<Bl
         blocks.extend(r.paras(&sec.paragraphs, false));
     }
     Ok((page, blocks))
+}
+
+/// 칸들(행, 열, 행 수, 열 수, 폭 pt)의 실제 가로 경계를 모아 촘촘한 열 격자를 만든다.
+/// (열 너비들, 칸마다 새 (시작 열, 열 수)). 행 안에서 열 번호 순서로 폭을 쌓아 경계를 잰다(위에서 내려온 세로 합침 칸 포함).
+/// 0.75pt 안의 경계는 하나로 본다. 열 번호가 겹치거나 비면 None — 옛 방식으로.
+fn fine_grid(rows: usize, cells: &[(usize, usize, usize, usize, f64)]) -> Option<(Vec<f64>, Vec<(usize, usize)>)> {
+    let mut start = vec![f64::NAN; cells.len()];
+    let mut end = vec![f64::NAN; cells.len()];
+    let mut bounds: Vec<f64> = vec![0.0];
+    for r in 0..rows {
+        let mut row: Vec<usize> = (0..cells.len()).filter(|&i| cells[i].0 <= r && r < cells[i].0 + cells[i].2).collect();
+        row.sort_by_key(|&i| cells[i].1);
+        let (mut x, mut next) = (0.0f64, 0usize);
+        for &i in &row {
+            if cells[i].1 != next {
+                return None;
+            }
+            if r == cells[i].0 {
+                start[i] = x;
+                end[i] = x + cells[i].4;
+            } else if (start[i] - x).abs() > 0.75 {
+                // 위에서 내려온 칸이 이 행에서는 다른 자리 — 첫 행 자리를 따른다
+                x = start[i];
+            }
+            x += cells[i].4;
+            next += cells[i].3;
+            bounds.push(x);
+        }
+    }
+    if start.iter().any(|v| v.is_nan()) {
+        return None;
+    }
+    bounds.extend(start.iter().copied());
+    bounds.sort_by(f64::total_cmp);
+    let mut grid: Vec<f64> = Vec::new();
+    let mut group: Vec<f64> = Vec::new();
+    for b in bounds {
+        if group.last().is_some_and(|&l| b - l > 0.75) {
+            grid.push(group.iter().sum::<f64>() / group.len() as f64);
+            group.clear();
+        }
+        group.push(b);
+    }
+    if !group.is_empty() {
+        grid.push(group.iter().sum::<f64>() / group.len() as f64);
+    }
+    if grid.len() < 2 {
+        return None;
+    }
+    let near = |x: f64| (0..grid.len()).min_by(|&a, &b| (grid[a] - x).abs().total_cmp(&(grid[b] - x).abs())).unwrap();
+    let place = (0..cells.len())
+        .map(|i| {
+            let (a, b) = (near(start[i]), near(end[i]));
+            (a.min(grid.len() - 2), b.max(a + 1) - a.min(grid.len() - 2))
+        })
+        .collect();
+    let widths = grid.windows(2).map(|w| w[1] - w[0]).collect();
+    Some((widths, place))
 }

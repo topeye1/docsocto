@@ -158,7 +158,8 @@ fn table(t: &Table) -> WTable {
     let mut row_h = vec![0.0f64; t.rows];
     for cl in &t.cells {
         if cl.span.0 == 1 && cl.at.0 < t.rows {
-            row_h[cl.at.0] = row_h[cl.at.0].max(cl.h);
+            // Word 는 행 높이에 칸 위아래 여백을 더해 그렸다(01 사업신청서 22.3 → 28.4pt, 여백을 빼니 22.7pt) — 빼서 넣는다
+            row_h[cl.at.0] = row_h[cl.at.0].max(cl.h - cl.pad[0] - cl.pad[2]);
         }
     }
     let at = |r: usize, c: usize| t.cells.iter().find(|cl| cl.at == (r, c));
